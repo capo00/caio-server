@@ -9,7 +9,7 @@ const Config = require('../config/config');
 const Command = require("./command");
 
 const App = {
-  async init({ api = {}, publicPath = path.resolve(__dirname, "../../../../public") } = {}) {
+  init({ api = {}, publicPath = path.resolve(__dirname, "../../../../public") } = {}) {
     const app = express();
 
     // Middleware
