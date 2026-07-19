@@ -1,22 +1,31 @@
 {
-  "name": "oc_app-server",
+  "name": "caio-server",
   "version": "0.1.0",
   "main": "src/index.js",
   "scripts": {
-    "start": "nodemon src/start.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "nodemon tools/start.js",
+    "test": "jest --coverage"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "description": "",
   "dependencies": {
-    "cookie-parser": "^1.4.6",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "nodemon": "^3.1.4",
-    "oc_mongo": "C:\\Users\\User\\Documents\\work\\github\\oc_mongo\\target\\oc_mongo-0.1.2.tgz",
-    "oc_app-auth": "C:\\Users\\User\\Documents\\work\\github\\oc_app-auth\\target\\oc_app-auth-0.1.0.tgz"
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "googleapis": "^173.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongodb": "^7.5.0",
+    "multer": "^2.2.0",
+    "nodemon": "^3.1.14",
+    "passport": "~0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "uu_appdatatypesg02": "~0.2.1"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2"
   }
 }

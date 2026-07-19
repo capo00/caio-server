@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AFK Bratčice login</title>
+  </head>
+  <body>
+    <div id="error"></div>
+    <p>Logged in successfully. You can close this window.</p>
+    <script>
+      const identity = %s;
+      window.addEventListener("load", function () {
+        try {
+          if (window.opener?.postMessage) {
+            window.opener.postMessage({ type: "auth", identity }, "*");
+          }
+          window.close();
+        } catch (e) {
+          document.getElementById("error").innerHTML = e.message;
+        }
+      });
+    </script>
+  </body>
+</html>
