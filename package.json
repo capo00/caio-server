@@ -4,7 +4,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "nodemon tools/start.js",
-    "test": "jest --coverage"
+    "test": "jest --coverage",
+    "package": "node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && npm pack --pack-destination dist"
   },
   "keywords": [],
   "author": "",

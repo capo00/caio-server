@@ -131,6 +131,5 @@ dist
 
 .idea/
 package-lock.json
-target/
 
 .env.development
