@@ -1,7 +1,7 @@
-const express = require("express");
-const CaioServerAuth = require("../../caio-server-auth");
-const CaioServerBinaryStore = require("../../caio-server-binarystore");
-const CaioServerCore = require("../../caio-server-core");
+import express from "express";
+import CaioServerAuth from "../../caio-server-auth/index.js";
+import CaioServerBinaryStore from "../../caio-server-binarystore/index.js";
+import { Error as CoreError } from "../../caio-server-core/index.js";
 
 function authorization(profiles) {
   return (req, res, next) => {
@@ -84,7 +84,7 @@ const Command = {
 
           if (dtoOut !== false) res.json(dtoOut == null ? {} : dtoOut);
         } catch (e) {
-          if (e instanceof CaioServerCore.Error) {
+          if (e instanceof CoreError) {
             console.error(`[${new Date().toISOString()}](${method}) /${uc} Expected exception. dtoIn = `, dtoIn, e);
             res.status(e.status || 500).send(e.toObject());
           } else {
@@ -105,4 +105,4 @@ const Command = {
   }
 }
 
-module.exports = Command;
+export default Command;

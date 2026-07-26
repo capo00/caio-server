@@ -1,4 +1,4 @@
-module.exports = {
+const Config = {
   mongodbUri: process.env.MONGODB_URI,
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID,
@@ -11,3 +11,5 @@ module.exports = {
   },
   ERROR_PREFIX: "caio-server-auth/",
 };
+
+export default Config;

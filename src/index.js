@@ -1,7 +1,7 @@
-const { App } = require("./caio-server-app");
-const { Error, Crud } = require("./caio-server-core");
-const { Dao, DaoError } = require("./caio-server-dao");
-const Authentication = require("./caio-server-auth");
-const BinaryStore = require("./caio-server-binarystore");
+import { App } from "./caio-server-app/index.js";
+import { Error, Crud } from "./caio-server-core/index.js";
+import { Dao, DaoError } from "./caio-server-dao/index.js";
+import Authentication from "./caio-server-auth/index.js";
+import BinaryStore from "./caio-server-binarystore/index.js";
 
-module.exports = { App, Error, Crud, Dao, DaoError, Authentication, BinaryStore };
+export { App, Error, Crud, Dao, DaoError, Authentication, BinaryStore };

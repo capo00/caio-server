@@ -1,11 +1,10 @@
-const Passport = require('./helpers/passport');
-const Routes = require('./api/routes');
-const authentication = require("./api/authentication");
-const { registerCookieName } = require("./api/authentication");
-const { IdentityDao } = require('./dao/identity-dao');
-const { createIdentity } = require('./abl/identity');
+import Passport from "./helpers/passport.js";
+import Routes from "./api/routes.js";
+import authentication, { registerCookieName } from "./api/authentication.js";
+import { IdentityDao } from "./dao/identity-dao.js";
+import { createIdentity } from "./abl/identity.js";
 
-module.exports = {
+const Authentication = {
   init(app, { prefixPath = "/auth", collectionName } = {}) {
     let identity;
     let strategyName = "google";
@@ -24,4 +23,6 @@ module.exports = {
   },
 
   authentication,
-}
+};
+
+export default Authentication;

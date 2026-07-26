@@ -1,4 +1,4 @@
-const Crud = require("../../src/caio-server-core/crud");
+import Crud from "../../src/caio-server-core/crud.js";
 
 function createMockDao() {
   return {

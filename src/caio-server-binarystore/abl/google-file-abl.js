@@ -1,7 +1,7 @@
-const { google } = require("googleapis");
-const fs = require("fs");
-const Config = require("../config/config");
-const CaioServerCore = require("../../caio-server-core");
+import { google } from "googleapis";
+import fs from "fs";
+import Config from "../config/config.js";
+import { Error as CoreError } from "../../caio-server-core/index.js";
 
 const SCOPES = ["https://www.googleapis.com/auth/drive"];
 
@@ -24,13 +24,13 @@ function googleFiles() {
 
 const ERROR_CODE_PREFIX = "caio-server-binarystore/google-file/";
 const Error = {
-  DoesNotExists: class extends CaioServerCore.Error.DoesNotExists {
+  DoesNotExists: class extends CoreError.DoesNotExists {
     constructor(e, opts) {
       super("Binary does not exist", { cause: e, codePrefix: ERROR_CODE_PREFIX, ...opts });
     }
   },
 
-  CreateFailed: class extends CaioServerCore.Error.Failed {
+  CreateFailed: class extends CoreError.Failed {
     static CODE = ERROR_CODE_PREFIX + "createFailed";
 
     constructor(e, opts) {
@@ -41,7 +41,7 @@ const Error = {
     }
   },
 
-  UpdateFailed: class extends CaioServerCore.Error.Failed {
+  UpdateFailed: class extends CoreError.Failed {
     static CODE = ERROR_CODE_PREFIX + "updateFailed";
 
     constructor(e, opts) {
@@ -52,7 +52,7 @@ const Error = {
     }
   },
 
-  DeleteFailed: class extends CaioServerCore.Error.Failed {
+  DeleteFailed: class extends CoreError.Failed {
     static CODE = ERROR_CODE_PREFIX + "deleteFailed";
 
     constructor(e, opts) {
@@ -118,4 +118,4 @@ class GoogleFile {
   }
 }
 
-module.exports = GoogleFile;
+export default GoogleFile;

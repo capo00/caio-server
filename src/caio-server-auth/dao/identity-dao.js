@@ -1,4 +1,4 @@
-const Dao = require("./dao");
+import Dao from "./dao.js";
 
 class IdentityDao extends Dao {
   constructor(collectionName = "sys_identity") {
@@ -26,5 +26,5 @@ class IdentityDao extends Dao {
   }
 }
 
-module.exports = new IdentityDao();
-module.exports.IdentityDao = IdentityDao;
+export { IdentityDao };
+export default new IdentityDao();

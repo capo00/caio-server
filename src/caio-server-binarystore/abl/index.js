@@ -1,5 +1,3 @@
-const Binary = require("./binary-abl");
+import Binary from "./binary-abl.js";
 
-module.exports = {
-  Binary
-}
+export { Binary };

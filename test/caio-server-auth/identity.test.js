@@ -15,9 +15,9 @@ jest.mock("../../src/caio-server-auth/config/config", () => ({
 
 jest.mock("../../src/caio-server-auth/dao/identity-dao", () => ({}));
 
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const { createIdentity } = require("../../src/caio-server-auth/abl/identity");
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { createIdentity } from "../../src/caio-server-auth/abl/identity.js";
 
 function createMockDao() {
   return {

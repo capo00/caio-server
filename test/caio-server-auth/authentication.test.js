@@ -4,7 +4,7 @@ jest.mock("../../src/caio-server-auth/config/config", () => ({
   ERROR_PREFIX: "caio-server-auth/",
 }));
 
-const jwt = require("jsonwebtoken");
+import jwt from "jsonwebtoken";
 
 // We need a fresh module for each test to reset cookieNames
 let authentication, registerCookieName;
@@ -20,7 +20,7 @@ beforeEach(() => {
   }));
 
   const mod = require("../../src/caio-server-auth/api/authentication");
-  authentication = mod;
+  authentication = mod.default || mod;
   registerCookieName = mod.registerCookieName;
 });
 

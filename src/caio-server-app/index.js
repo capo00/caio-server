@@ -1,5 +1,3 @@
-const App = require("./services/app");
+import App from "./services/app.js";
 
-module.exports = {
-  App
-};
+export { App };

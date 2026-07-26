@@ -1,4 +1,4 @@
-const { MongoClient, ObjectId } = require("mongodb");
+import { MongoClient, ObjectId } from "mongodb";
 
 const clientMap = {};
 
@@ -6,4 +6,4 @@ function mongo(uri) {
   return clientMap[uri] ||= new MongoClient(uri);
 }
 
-module.exports = { mongo, ObjectId };
+export { mongo, ObjectId };

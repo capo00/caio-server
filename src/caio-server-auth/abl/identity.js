@@ -1,8 +1,8 @@
-const bcrypt = require('bcryptjs');
-const jwt = require("jsonwebtoken");
-const Config = require("../config/config");
-const { Error } = require("../../caio-server-core");
-const defaultIdentityDao = require("../dao/identity-dao");
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import Config from "../config/config.js";
+import { Error } from "../../caio-server-core/index.js";
+import defaultIdentityDao from "../dao/identity-dao.js";
 
 const CODE_PREFIX = "caio-server-auth/identity";
 
@@ -92,5 +92,5 @@ function createIdentity(identityDao, collectionName = "sys_identity") {
   return Identity;
 }
 
-module.exports = createIdentity(defaultIdentityDao, "sys_identity");
-module.exports.createIdentity = createIdentity;
+export { createIdentity };
+export default createIdentity(defaultIdentityDao, "sys_identity");

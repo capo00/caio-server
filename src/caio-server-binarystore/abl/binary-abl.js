@@ -1,8 +1,8 @@
-const os = require("os");
-const dao = require("../dao/binary-dao");
-const multer = require("multer");
-const CaioServerCore = require("../../caio-server-core");
-const GoogleFileAbl = require("./google-file-abl");
+import os from "os";
+import dao from "../dao/binary-dao.js";
+import multer from "multer";
+import { Crud, Error as CoreError } from "../../caio-server-core/index.js";
+import GoogleFileAbl from "./google-file-abl.js";
 
 const storage = multer.diskStorage({
   destination: os.tmpdir(),
@@ -11,7 +11,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-class BinaryAbl extends CaioServerCore.Crud {
+class BinaryAbl extends Crud {
 
   constructor() {
     super("sys/binary", dao);
@@ -42,7 +42,7 @@ class BinaryAbl extends CaioServerCore.Crud {
           console.error("Binary cannot be deleted from GoogleFile", gFile.id, gFile.uri);
         }
       }
-      throw new CaioServerCore.Crud.Error.CreateFailed(this.name, e);
+      throw new Crud.Error.CreateFailed(this.name, e);
     }
   }
 
@@ -69,7 +69,7 @@ class BinaryAbl extends CaioServerCore.Crud {
 
       return this._getData({ ...binaryData, uri });
     } catch (e) {
-      throw new CaioServerCore.Crud.Error.UpdateFailed(this.name, e);
+      throw new Crud.Error.UpdateFailed(this.name, e);
     }
   }
 
@@ -82,7 +82,7 @@ class BinaryAbl extends CaioServerCore.Crud {
         await this.dao.delete(id);
       }
     } catch (e) {
-      throw new CaioServerCore.Crud.Error.DeleteFailed(this.name, e);
+      throw new Crud.Error.DeleteFailed(this.name, e);
     }
   }
 
@@ -99,4 +99,4 @@ class BinaryAbl extends CaioServerCore.Crud {
   }
 }
 
-module.exports = new BinaryAbl();
+export default new BinaryAbl();

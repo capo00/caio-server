@@ -1,7 +1,4 @@
-const Dao = require("./dao");
-const DaoError = require("./dao-error");
+import Dao from "./dao.js";
+import DaoError from "./dao-error.js";
 
-module.exports = {
-  Dao,
-  DaoError,
-};
+export { Dao, DaoError };

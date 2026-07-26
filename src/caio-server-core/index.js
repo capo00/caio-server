@@ -1,7 +1,4 @@
-const Error = require("./error");
-const Crud = require("./crud");
+import Error from "./error.js";
+import Crud from "./crud.js";
 
-module.exports = {
-  Error,
-  Crud,
-};
+export { Error, Crud };

@@ -1,9 +1,3 @@
-function run() {
-  // Set NODE_ENV to development before spawning the processes
-  process.env.NODE_ENV = "development";
+import { App } from "../src/index.js";
 
-  const CaioServer = require("../src/index");
-  CaioServer.App.init();
-}
-
-run();
+App.init();

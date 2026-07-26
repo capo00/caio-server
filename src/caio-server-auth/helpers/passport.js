@@ -1,9 +1,10 @@
-const GoogleStrategy = require("passport-google-oauth20").Strategy;
-const passport = require("passport");
-const DefaultIdentity = require("../abl/identity");
-const Config = require("../config/config");
+import pkg from "passport-google-oauth20";
+const { Strategy: GoogleStrategy } = pkg;
+import passport from "passport";
+import DefaultIdentity from "../abl/identity.js";
+import Config from "../config/config.js";
 
-module.exports = {
+const Passport = {
   init(prefixPath = "", identity = DefaultIdentity, strategyName = "google") {
     passport.use(
       strategyName,
@@ -43,4 +44,6 @@ module.exports = {
       identity.get(id).then((user) => done(null, user)).catch((err) => done(err, null));
     });
   }
-}
+};
+
+export default Passport;

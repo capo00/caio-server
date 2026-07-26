@@ -1,6 +1,6 @@
-const { mongo, ObjectId } = require("./helpers/mongo");
-const Config = require("./config/config");
-const DaoError = require("./dao-error");
+import { mongo, ObjectId } from "./helpers/mongo.js";
+import Config from "./config/config.js";
+import DaoError from "./dao-error.js";
 
 const DEFAULT_PAGE_SIZE = 1000;
 
@@ -147,4 +147,4 @@ class Dao {
   }
 }
 
-module.exports = Dao;
+export default Dao;

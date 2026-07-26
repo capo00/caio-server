@@ -5,4 +5,4 @@ class DaoError extends Error {
   }
 }
 
-module.exports = DaoError;
+export default DaoError;

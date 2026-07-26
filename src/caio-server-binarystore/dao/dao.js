@@ -1,10 +1,10 @@
-const CaioServerDao = require("../../caio-server-dao");
-const Config = require("../config/config")
+import { Dao as BaseDao } from "../../caio-server-dao/index.js";
+import Config from "../config/config.js";
 
-class Dao extends CaioServerDao.Dao {
+class Dao extends BaseDao {
   constructor(collectionName) {
     super(collectionName, { uri: Config.mongodbUri });
   }
 }
 
-module.exports = Dao;
+export default Dao;

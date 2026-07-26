@@ -1,8 +1,8 @@
-const DaoError = require("../../src/caio-server-dao/dao-error");
+import DaoError from "../../src/caio-server-dao/dao-error.js";
 
-let mockCollection;
-let mockDb;
-let mockClient;
+var mockCollection;
+var mockDb;
+var mockClient;
 
 jest.mock("../../src/caio-server-dao/helpers/mongo", () => {
   mockCollection = {
@@ -27,7 +27,7 @@ jest.mock("../../src/caio-server-dao/config/config", () => ({
   mongodbUri: "mongodb://test:27017/testdb",
 }));
 
-const Dao = require("../../src/caio-server-dao/dao");
+import Dao from "../../src/caio-server-dao/dao.js";
 
 function mockFindChain(results) {
   const chain = {

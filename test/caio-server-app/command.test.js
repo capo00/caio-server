@@ -1,20 +1,22 @@
-jest.mock("../../src/caio-server-auth", () => ({
-  authentication: jest.fn((req, res, next) => next()),
+jest.mock("../../src/caio-server-auth/index.js", () => ({
+  __esModule: true,
+  default: { authentication: jest.fn((req, res, next) => next()) },
 }));
 
-jest.mock("../../src/caio-server-binarystore", () => ({
-  Binary: { parseFormDataRequest: jest.fn() },
+jest.mock("../../src/caio-server-binarystore/index.js", () => ({
+  __esModule: true,
+  default: { Binary: { parseFormDataRequest: jest.fn() } },
 }));
 
-jest.mock("../../src/caio-server-core", () => {
-  const AppError = require("../../src/caio-server-core/error");
-  return { Error: AppError, Crud: require("../../src/caio-server-core/crud") };
+jest.mock("../../src/caio-server-core/index.js", () => {
+  const AppError = require("../../src/caio-server-core/error.js").default;
+  return { __esModule: true, Error: AppError, Crud: require("../../src/caio-server-core/crud.js").default };
 });
 
-const Command = require("../../src/caio-server-app/services/command");
-const CaioServerAuth = require("../../src/caio-server-auth");
-const CaioServerBinaryStore = require("../../src/caio-server-binarystore");
-const AppError = require("../../src/caio-server-core/error");
+import Command from "../../src/caio-server-app/services/command.js";
+import CaioServerAuth from "../../src/caio-server-auth/index.js";
+import CaioServerBinaryStore from "../../src/caio-server-binarystore/index.js";
+import { Error as AppError } from "../../src/caio-server-core/index.js";
 
 function createMockApp() {
   const routes = {};

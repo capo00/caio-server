@@ -31,4 +31,4 @@ AppError.Failed = class extends AppError {
   }
 };
 
-module.exports = AppError;
+export default AppError;

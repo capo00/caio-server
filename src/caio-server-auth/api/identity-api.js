@@ -1,7 +1,7 @@
-const UuAppDataTypes = require("uu_appdatatypesg02");
-const Identity = require("../abl/identity");
+import UuAppDataTypes from "uu_appdatatypesg02";
+import Identity from "../abl/identity.js";
 
-module.exports = {
+const identityApi = {
   "identity/search": {
     method: "get",
     auth: true,
@@ -38,3 +38,5 @@ module.exports = {
     },
   },
 };
+
+export default identityApi;

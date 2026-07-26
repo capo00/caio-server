@@ -1,4 +1,4 @@
-module.exports = {
+const Config = {
   port: process.env.PORT || 8080,
   mongodbUri: process.env.MONGODB_URI,
   google: {
@@ -18,3 +18,5 @@ module.exports = {
     jwtLifetime: process.env.JWT_LIFETIME || "1d",
   }
 };
+
+export default Config;

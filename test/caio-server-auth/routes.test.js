@@ -10,8 +10,8 @@ jest.mock("../../src/caio-server-auth/config/config", () => ({
 
 jest.mock("../../src/caio-server-auth/abl/identity", () => ({}));
 
-const jwt = require("jsonwebtoken");
-const Routes = require("../../src/caio-server-auth/api/routes");
+import jwt from "jsonwebtoken";
+import Routes from "../../src/caio-server-auth/api/routes.js";
 
 function createMockIdentity() {
   return {

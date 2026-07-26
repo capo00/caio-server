@@ -1,4 +1,4 @@
-const Dao = require("./dao");
+import Dao from "./dao.js";
 
 class BinaryDao extends Dao {
   constructor() {
@@ -13,4 +13,4 @@ class BinaryDao extends Dao {
   }
 }
 
-module.exports = new BinaryDao();
+export default new BinaryDao();

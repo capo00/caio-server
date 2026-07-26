@@ -1,5 +1,5 @@
-const jwt = require("jsonwebtoken");
-const Config = require("../config/config");
+import jwt from "jsonwebtoken";
+import Config from "../config/config.js";
 
 const cookieNames = ["token"];
 
@@ -30,5 +30,5 @@ async function authentication(req, res, next) {
   next();
 }
 
-module.exports = authentication;
-module.exports.registerCookieName = registerCookieName;
+export { registerCookieName };
+export default authentication;

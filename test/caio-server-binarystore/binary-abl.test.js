@@ -47,11 +47,11 @@ jest.mock("../../src/caio-server-binarystore/config/config", () => ({
   ERROR_PREFIX: "caio-server-binarystore/",
 }));
 
-const BinaryAbl = require("../../src/caio-server-binarystore/abl/binary-abl");
-const GoogleFileAbl = require("../../src/caio-server-binarystore/abl/google-file-abl");
-const dao = require("../../src/caio-server-binarystore/dao/binary-dao");
-const multer = require("multer");
-const Crud = require("../../src/caio-server-core/crud");
+import BinaryAbl from "../../src/caio-server-binarystore/abl/binary-abl.js";
+import GoogleFileAbl from "../../src/caio-server-binarystore/abl/google-file-abl.js";
+import dao from "../../src/caio-server-binarystore/dao/binary-dao.js";
+import multer from "multer";
+import Crud from "../../src/caio-server-core/crud.js";
 
 describe("BinaryAbl", () => {
   beforeEach(() => {

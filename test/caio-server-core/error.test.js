@@ -1,4 +1,4 @@
-const AppError = require("../../src/caio-server-core/error");
+import AppError from "../../src/caio-server-core/error.js";
 
 describe("AppError", () => {
   it("should set default status to 500", () => {

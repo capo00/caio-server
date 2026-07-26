@@ -2,10 +2,11 @@
   "name": "caio-server",
   "version": "0.1.0",
   "main": "src/index.js",
+  "type": "module",
   "scripts": {
     "start": "nodemon tools/start.js",
-    "test": "jest --coverage",
-    "package": "node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && npm pack --pack-destination dist"
+    "test": "node node_modules/jest/bin/jest.js --coverage",
+    "package": "node -e \"import('fs').then(fs=>fs.mkdirSync('dist',{recursive:true}))\" && npm pack --pack-destination dist"
   },
   "keywords": [],
   "author": "",
@@ -27,6 +28,9 @@
     "uu_appdatatypesg02": "~0.2.1"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/preset-env": "^7.29.7",
+    "babel-jest": "^30.4.1",
     "jest": "^30.4.2"
   }
 }

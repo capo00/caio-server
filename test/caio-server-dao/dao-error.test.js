@@ -1,4 +1,4 @@
-const DaoError = require("../../src/caio-server-dao/dao-error");
+import DaoError from "../../src/caio-server-dao/dao-error.js";
 
 describe("DaoError", () => {
   it("should set message and prefixed code", () => {

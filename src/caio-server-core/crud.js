@@ -1,4 +1,4 @@
-const Error = require("./error");
+import Error from "./error.js";
 
 const ERROR_CODE_PREFIX = "caio-server";
 const CrudError = {
@@ -128,4 +128,4 @@ class Crud {
 
 Crud.Error = CrudError;
 
-module.exports = Crud;
+export default Crud;

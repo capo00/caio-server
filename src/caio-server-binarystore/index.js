@@ -1,10 +1,12 @@
-const routes = require("./api/routes");
-const Config = require("./config/config");
-const { Binary } = require("./abl");
+import routes from "./api/routes.js";
+import Config from "./config/config.js";
+import { Binary } from "./abl/index.js";
 
-module.exports = {
+const BinaryStore = {
   init(app, { googleDiskAuthPath, prefixPath = "/binary" } = {}) {
     Config.googleDiskAuthPath = googleDiskAuthPath;
   },
   Binary,
-}
+};
+
+export default BinaryStore;

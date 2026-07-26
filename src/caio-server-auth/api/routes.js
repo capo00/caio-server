@@ -1,9 +1,13 @@
-const express = require("express");
-const jwt = require("jsonwebtoken");
-const passport = require("passport");
-const DefaultIdentity = require("../abl/identity");
-const Config = require("../config/config");
-const fs = require("fs");
+import express from "express";
+import jwt from "jsonwebtoken";
+import passport from "passport";
+import DefaultIdentity from "../abl/identity.js";
+import Config from "../config/config.js";
+import fs from "fs";
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
@@ -15,7 +19,7 @@ function getCookieOptions() {
   };
 }
 
-module.exports = {
+const Routes = {
   init(prefixPath = "", identity = DefaultIdentity, strategyName = "google", cookieName = "token") {
     const router = express.Router();
 
@@ -126,3 +130,5 @@ module.exports = {
     return router;
   }
 };
+
+export default Routes;
