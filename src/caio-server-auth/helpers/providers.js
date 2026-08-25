@@ -1,6 +1,8 @@
-import pkg from "passport-google-oauth20";
+import googlePkg from "passport-google-oauth20";
+import facebookPkg from "passport-facebook";
 
-const { Strategy: GoogleStrategy } = pkg;
+const { Strategy: GoogleStrategy } = googlePkg;
+const { Strategy: FacebookStrategy } = facebookPkg;
 
 /**
  * The identity providers this module can sign somebody in with.
@@ -33,6 +35,34 @@ export const PROVIDERS = {
       // Google states this in the id token. Without it the e-mail must not be used to
       // claim an existing identity.
       emailVerified: profile._json?.email_verified ?? profile.emails?.[0]?.verified ?? false,
+      data: {
+        name: profile.displayName,
+        firstName: profile.name?.givenName,
+        surname: profile.name?.familyName,
+        photo: profile.photos?.[0]?.value,
+      },
+    }),
+  },
+
+  facebook: {
+    callbackUc: "facebook/callback",
+    scope: ["email"],
+    // Meta's console calls them App ID and App Secret; passport calls the same two
+    // clientID and clientSecret.
+    envKeys: ["FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"],
+    credentials: () => ({
+      clientID: process.env.FACEBOOK_APP_ID,
+      clientSecret: process.env.FACEBOOK_APP_SECRET,
+    }),
+    createStrategy: (options, verify) =>
+      // Facebook hands over nothing but the id unless the fields are asked for.
+      new FacebookStrategy({ ...options, profileFields: ["id", "displayName", "name", "photos", "email"] }, verify),
+    mapProfile: (profile) => ({
+      providerId: profile.id,
+      email: profile.emails?.[0]?.value,
+      // Facebook only ever returns an address the account has confirmed -- and often
+      // returns none at all, which Identity.create() handles (docs/auth.md, R4).
+      emailVerified: !!profile.emails?.[0]?.value,
       data: {
         name: profile.displayName,
         firstName: profile.name?.givenName,

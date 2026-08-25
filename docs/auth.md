@@ -1,7 +1,8 @@
 # Login: Facebook a jméno/heslo — plán
 
-Stav: **krok 0, fáze 1, fáze 3 a z fáze 2 předsazené N6 + chybová stránka hotové (2026-08-25)**;
-zbývá vlastní Facebook (čeká na App ID/Secret, kapitola 7) a fáze 4.
+Stav: **všechno hotové na úrovni kódu (2026-08-25)** — krok 0, fáze 1, 2 i 3.
+Neověřené zůstává přihlášení proti **skutečné** Facebook appce (chybí App ID/Secret, kapitola 7)
+a reálná chyba z OAuth callbacku; fáze 4 (ověření a dokumentace v appce) je hotová v `app-v1`.
 
 Zadání (úkol #3 z 2026-08-24): *„login budu potřebovat rozšířit o fb a o username a heslo“*.
 Jméno/heslo **funguje na serveru i v UI** (krok 0 a fáze 1 na serveru, fáze 3 přihlašovací stránka);
@@ -24,6 +25,7 @@ nálezy N1–N5, N8 a N9 jsou vyřešené. Facebook chybí celý (fáze 2), s n�
 | `/auth/logout` | POST | funguje — smaže cookie |
 | `/auth/google` | GET | funguje — `passport.authenticate("google")` s `callbackURL` odvozeným z `Referer` |
 | `/auth/google/callback` | GET | funguje — nastaví cookie a vrátí `assets/callback.html`, který přes `postMessage` pošle identitu do openera a zavře popup |
+| `/auth/facebook` + `/auth/facebook/callback` | GET | stejné jako Google (fáze 2); neověřené proti reálné FB appce |
 
 Identita je jeden dokument v kolekci `sys_identity` (nebo `<collectionName>`):
 
@@ -328,6 +330,34 @@ skutečné credentials a účet u providera. Handler na to má unit test.
    odvozeného z `Referer`.
 5. ~~N6: strategii registrovat jen když má credentials~~ — **hotovo 2026-08-25** (viz níž),
    Facebook se tím pádem přidává jedním záznamem v registru `helpers/providers.js`.
+
+### Fáze 2 (server) a branded tlačítka: hotovo 2026-08-25
+
+**Facebook na serveru** je hotový: `passport-facebook` v závislostech a záznam `facebook`
+v registru `helpers/providers.js` — `envKeys: FACEBOOK_APP_ID / FACEBOOK_APP_SECRET` (tak se ty
+hodnoty jmenují v Meta konzoli), `profileFields: id, displayName, name, photos, email` (bez nich
+Facebook nepošle nic než id) a `scope: ["email"]`. Routy `/auth/facebook` a `/auth/facebook/callback`
+vznikly samy, protože se generují z registru. Mapování profilu považuje vrácený e-mail za
+**potvrzený** — Facebook jinou adresu nevydá — a účet bez e-mailu projde (R4).
+
+Nic z toho **není otestované proti skutečné FB appce**: chybí App ID/Secret (postup je v kapitole 7).
+Ověřené je jen to, co jde bez nich: s vyplněnými env se Facebook objeví v `providerList`
+a `GET /auth/facebook` vrátí **302 na `facebook.com/v3.2/dialog/oauth`** se správným
+`redirect_uri`, `scope=email` a `client_id`. Zbývá tedy jediné: reálné přihlášení a s ním případ
+„účet bez e-mailu“.
+
+**Tlačítka providerů podle jejich standardů** (v `caio-ui/static/login/`):
+
+- **Google** — bílá plocha, rámeček `#747775`, text `#1f1f1f`, Roboto, čtyřbarevné „G“ jako inline
+  SVG, výška 40 px. V tmavém režimu Googlem povolená varianta: plocha `#131314`, rámeček `#8e918f`,
+  text `#e3e3e3`.
+- **Facebook** — `#1877f2`, bílé „f“ a bílý text, Helvetica. Tmavou variantu Facebook nemá, takže
+  zůstává modrá i v dark mode.
+- Obě tlačítka mají logo vlevo a text na střed, a **nedědí barvy appky** — obě značky vyžadují
+  svoje. V CSS je to proto oddělené od tokenů tématu (komentář to říká, aby to někdo nesloučil).
+
+Ověřeno v prohlížeči: `background`, `color`, `borderColor` a výška odpovídají hodnotám výš, Google
+má 4 cesty v SVG, Facebook jednu, a v `providerList` se objevují oba, jen když mají credentials.
 
 **Fáze 3 — přihlašovací stránka (`caio-ui`) + její doprava (`caio-devkit`)** — tok je v 5.2
 

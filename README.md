@@ -261,6 +261,8 @@ Registered routes (relative to `prefixPath`):
 | `/logout`                   | POST   | Clears JWT cookie.                                                |
 | `/google`                   | GET    | Initiates Google OAuth flow.                                      |
 | `/google/callback`          | GET    | Google OAuth callback. Sets JWT cookie and closes popup.          |
+| `/facebook`                 | GET    | Initiates Facebook OAuth flow.                                    |
+| `/facebook/callback`        | GET    | Facebook OAuth callback. Same as Google.                          |
 
 Errors come back as `{ error: { code, message } }` with codes prefixed `caio-server-auth/`:
 `invalidEmail`, `passwordTooShort` / `passwordTooLong` / `passwordTooSimple`, `identityExists`,
@@ -396,6 +398,8 @@ await BinaryStore.Binary.delete(binary.id);
 | MONGODB_URI                  | Uri of the mongo database. Required for authentication and creating identity.                                                  |
 | GOOGLE_CLIENT_ID             | Google client id from Google Console -> APIs & Services -> Credentials -> OAuth. **Optional**: without it (or without the secret) Google sign-in is simply not offered -- no strategy, not in `/auth/config`, and its routes say so. |
 | GOOGLE_CLIENT_SECRET         | Google secret key, generated together with the client id. Optional, see above.                                                 |
+| FACEBOOK_APP_ID              | Facebook App ID from developers.facebook.com (Meta calls it App ID, passport calls it clientID). **Optional**, same rule as Google: without both values Facebook sign-in is not offered. |
+| FACEBOOK_APP_SECRET          | Facebook App Secret. Optional, see above.                                                                                      |
 | GOOGLE_OAUTH_URL             | Uri for log in the user.<br/>Default: https://accounts.google.com/o/oauth2/v2/auth                                             |
 | GOOGLE_ACCESS_TOKEN_URL      | Uri for getting access token.<br/>Default: https://oauth2.googleapis.com/token                                                 |
 | GOOGLE_TOKEN_INFO_URL        | Uri for getting info about the user.<br/>Default: https://oauth2.googleapis.com/tokeninfo                                      |

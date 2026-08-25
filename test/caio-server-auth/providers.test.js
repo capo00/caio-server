@@ -4,16 +4,19 @@ describe("providers", () => {
   const saved = { ...process.env };
 
   beforeEach(() => {
-    for (const key of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]) delete process.env[key];
+    for (const key of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"]) {
+      delete process.env[key];
+    }
   });
 
   afterAll(() => {
     process.env = saved;
   });
 
-  it("should know google", () => {
-    expect(getProviderNames()).toContain("google");
+  it("should know google and facebook", () => {
+    expect(getProviderNames()).toEqual(["google", "facebook"]);
     expect(PROVIDERS.google.callbackUc).toBe("google/callback");
+    expect(PROVIDERS.facebook.callbackUc).toBe("facebook/callback");
   });
 
   it("should treat a provider without credentials as unavailable", () => {
@@ -48,6 +51,43 @@ describe("providers", () => {
   it("should not invent providers it does not know", () => {
     expect(isConfigured("twitter")).toBe(false);
     expect(getMissingEnvKeys("twitter")).toEqual([]);
+  });
+
+  it("should offer each provider on its own credentials", () => {
+    process.env.FACEBOOK_APP_ID = "id";
+    process.env.FACEBOOK_APP_SECRET = "secret";
+
+    expect(getProviderList()).toEqual(["facebook"]);
+    expect(getMissingEnvKeys("google")).toEqual(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]);
+  });
+
+  describe("facebook profile mapping", () => {
+    it("should treat a returned e-mail as verified", () => {
+      // Facebook only ever hands over an address the account has confirmed.
+      const mapped = PROVIDERS.facebook.mapProfile({
+        id: "f-1",
+        displayName: "Jana Nová",
+        name: { givenName: "Jana", familyName: "Nová" },
+        emails: [{ value: "jana@test.cz" }],
+        photos: [{ value: "photo-url" }],
+      });
+
+      expect(mapped).toEqual({
+        providerId: "f-1",
+        email: "jana@test.cz",
+        emailVerified: true,
+        data: { name: "Jana Nová", firstName: "Jana", surname: "Nová", photo: "photo-url" },
+      });
+    });
+
+    it("should accept an account with no e-mail at all", () => {
+      // A Facebook account registered by phone has none; Identity.create() seeds the
+      // identity code off the provider id instead (docs/auth.md, R4).
+      const mapped = PROVIDERS.facebook.mapProfile({ id: "f-2", displayName: "Bez Mailu" });
+
+      expect(mapped.email).toBeUndefined();
+      expect(mapped.emailVerified).toBe(false);
+    });
   });
 
   describe("google profile mapping", () => {
