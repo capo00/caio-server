@@ -16,21 +16,24 @@ const Passport = {
         },
         async (accessToken, refreshToken, profile, done) => {
           try {
-            let found = await identity.findByGoogleId(profile.id);
-            if (found) {
-              done(null, found);
-            } else {
-              found = await identity.create({
-                email: profile.emails[0].value,
+            // Pairing an existing account with this provider is the ABL's job, so that
+            // Google and Facebook cannot drift apart -- see Identity.loginWithProvider
+            // and docs/auth.md, 5.1.
+            const found = await identity.loginWithProvider({
+              provider: "google",
+              providerId: profile.id,
+              email: profile.emails?.[0]?.value,
+              // Google says so in the id token; without it the e-mail must not be
+              // used to claim an existing identity.
+              emailVerified: profile._json?.email_verified ?? profile.emails?.[0]?.verified ?? false,
+              data: {
                 name: profile.displayName,
-                firstName: profile.name.givenName,
-                surname: profile.name.familyName,
-                photo: profile.photos[0]?.value,
-                registrationType: "google",
-                googleId: profile.id,
-              });
-              done(null, found);
-            }
+                firstName: profile.name?.givenName,
+                surname: profile.name?.familyName,
+                photo: profile.photos?.[0]?.value,
+              },
+            });
+            done(null, found);
           } catch (err) {
             console.error("Unexpected error during working with Identity.", err);
             done(err, null);

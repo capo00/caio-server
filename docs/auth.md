@@ -1,10 +1,10 @@
 # Login: Facebook a jméno/heslo — plán
 
-Stav: **rozhodnutí odsouhlasena; krok 0 (N1) implementován 2026-08-25**, fáze 1–4 před sebou.
+Stav: **krok 0 a fáze 1 hotové (2026-08-25)**, před sebou fáze 2 (Facebook), 3 (přihlašovací stránka) a 4.
 
 Zadání (úkol #3 z 2026-08-24): *„login budu potřebovat rozšířit o fb a o username a heslo“*.
-Jméno/heslo na serveru **existuje** a po opravě N1 (kapitola 3) i funguje, ale posílá klientovi hash
-hesla (N2) a nemá žádné UI; Facebook chybí celý.
+Jméno/heslo na serveru po kroku 0 a fázi 1 **funguje a je použitelné** (nálezy N1–N4, N8, N9 vyřešené),
+chybí mu ale UI; Facebook chybí celý.
 
 ---
 
@@ -17,8 +17,8 @@ hesla (N2) a nemá žádné UI; Facebook chybí celý.
 | Route | Metoda | Stav |
 |---|---|---|
 | `/auth` | GET | funguje — vrátí identitu z JWT cookie, nebo `{ identity: null }` |
-| `/auth/register` | POST | funguje od opravy N1 (kapitola 3); pořád vrací hash hesla (N2) |
-| `/auth/login` | POST | funguje od opravy N1 (kapitola 3); pořád vrací hash hesla (N2) |
+| `/auth/register` | POST | funguje; validuje e-mail i heslo a vrací jen basic data (fáze 1) |
+| `/auth/login` | POST | funguje; vrací jen basic data, identita bez hesla dá 400 (fáze 1) |
 | `/auth/logout` | POST | funguje — smaže cookie |
 | `/auth/google` | GET | funguje — `passport.authenticate("google")` s `callbackURL` odvozeným z `Referer` |
 | `/auth/google/callback` | GET | funguje — nastaví cookie a vrátí `assets/callback.html`, který přes `postMessage` pošle identitu do openera a zavře popup |
@@ -95,6 +95,18 @@ je `disabled: true`.
 `Passport.init()` registruje `GoogleStrategy` bezpodmínečně a `new GoogleStrategy({clientID: ""})`
 hodí `TypeError: OAuth2Strategy requires a clientID option`. Přidání Facebooku tuhle vlastnost
 zdvojnásobí, pokud se to nezmění na „registruj strategii jen když má credentials“.
+
+### N8 — kód identity koliduje, registrace na tom padá (**našlo se ve fázi 1**)
+
+`generateNumId()` složí řetězec na nejvýš tři číslice, takže stejný e-mail ve stejné sekundě dá
+stejný `identity` kód, a ten je pod unikátním indexem. Rozbor a oprava jsou v kapitole 4,
+*Fáze 1: hotovo*.
+
+### N9 — R1 vs. nepotvrzený e-mail (**našlo se ve fázi 1**)
+
+Nepotvrzený e-mail od providera, který už nějaká identita má, nejde ani spárovat (převzetí účtu),
+ani z něj založit druhou identitu (unikátní index z N4). Řešení a jeho důsledek jsou v kapitole 4,
+*Fáze 1: hotovo*.
 
 ### N7 — drobnosti
 
@@ -186,6 +198,72 @@ Krok 0 **nezahrnuje** N2–N4 — ty jsou fáze 1, ale bez nich se jméno/heslo 
 3. Validace vstupu (e-mail, minimální délka hesla) a chybové odpovědi v obálce `{ error: … }`.
 4. N4: index podle rozhodnutí R1.
 5. `registrationType: "password"` u registrace heslem.
+
+### Fáze 1: hotovo 2026-08-25
+
+Co se změnilo:
+
+- **N2** — `/register` i `/login` odpovídají `Identity.getBasicData()`, ne dokumentem z DB.
+  Hash hesla ani `sys` už z serveru nevypadnou.
+- **N3** — `/login` na identitě bez hesla (registrovaná providerem) vrací `400
+  invalidCredentials`, ne 500 z `bcrypt.compare(x, undefined)`. Odpověď je záměrně stejná jako
+  u špatného hesla, aby `/login` nebyl způsob, jak zjišťovat, které účty existují.
+- **Validace** — `Identity.isEmailValid()` a `Identity.checkPassword()` podle 5.3
+  (10–72 bajtů, malé + velké písmeno + číslice); pravidla jsou v `config/config.js` jako
+  `patternSource`, aby je fáze 3 mohla poslat přihlašovací stránce. Všechny chyby v obálce
+  `{ error: { code, message } }`.
+- **N4** — index je unikátní partial `{ email: 1 }` (`$type: "string"`), přidané partial indexy
+  na `googleId` a `facebookId`, a zaniklý `email_1_password_1` se při startu smaže.
+  `createIndexes()` je async a chyby jen loguje — konstruktor `Dao` ho nečeká, takže reject by
+  byl unhandled.
+- **R1** — párování je v `Identity.loginWithProvider()`, `helpers/passport.js` ho jen volá
+  (aby Google a Facebook nemohly začít dělat každý něco jiného). `getAuthMethodList()` odvozuje
+  z `password`/`googleId`/`facebookId`, co jde k účtu použít, a jde v `getBasicData()` klientovi
+  jako `authMethodList`.
+- **registrace heslem** dostává `registrationType: "password"`.
+- **R4 částečně** — `create()` už nespadne na identitě bez e-mailu: seed pro kód identity je
+  `email || googleId || facebookId || cts`.
+
+**Dva nálezy, které se objevily až proti živé DB** — unit testy s mockovaným daem je minout musely:
+
+**N8 — kód identity koliduje a registrace na tom padá.** `generateNumId()` složí libovolný
+řetězec na nejvýš tři číslice, takže `generateId(email, cts)` dá pro **stejný e-mail ve stejné
+sekundě stejný kód** — a `identity` je pod unikátním indexem, takže druhá registrace skončí
+`E11000 … index: identity_1`. Prostor je ~10⁶ kombinací, takže při několika tisících identit je
+kolize i mezi různými e-maily pravděpodobná. `create()` teď třetí segment kódu (ten, co byl vždy
+`1`) inkrementuje, dokud insert neprojde, a po 50 pokusech to vzdá čitelnou chybou.
+
+**N9 — R1 a „nepárovat nepotvrzený e-mail“ si odporují.** Když provider pošle **nepotvrzený**
+e-mail, který už nějaká identita má, nesmí se párovat (převzetí účtu) — ale ani se nedá založit
+druhá identita, protože přesně to unikátní index z N4 zakazuje. Řešení: **odmítnout přihlášení**
+s `409 caio-server-auth/identity/emailNotVerified` a vyjmenovat, čím se k tomu účtu dá dostat —
+stejná logika jako u registrace heslem na existující e-mail. Kdyby to mělo být jinak (třeba
+založit účet bez e-mailu), je to rozhodnutí k přehodnocení R1/R2.
+
+Zbytek se nezměnil: **N6** (strategie se registruje i bez credentials a shodí start) je pořád
+otevřený, patří do fáze 2. A ta chyba z N9 dnes v popupu skončí jako HTML 500 z Expressu —
+callback musí umět zobrazit hlášku, což je fáze 3.
+
+**Ověřeno.** `npm test`: 11 suit, **170 testů** zelených (nové bloky pro validaci hesla, párování,
+kolize kódu identity a indexy `IdentityDao`). Proti `app-v1` a lokálnímu Mongu:
+
+| Případ | Výsledek |
+|---|---|
+| krátké heslo / bez velkého písmena | `400 passwordTooShort` / `400 passwordTooSimple` |
+| nevalidní e-mail | `400 invalidEmail` (bez dotazu do DB) |
+| registrace OK | `201`, v odpovědi **žádný hash**, `authMethodList: ["password"]` |
+| druhá registrace na stejný e-mail | `400 identityExists` + „sign in with: password“ |
+| login správně / špatně | `200` bez hashe / `400 invalidCredentials` |
+| login heslem na identitu jen s `googleId` | `400 invalidCredentials` (dřív 500) |
+| registrace heslem na e-mail, co má jen Google | `400 identityExists` + „sign in with: google“ |
+| Google login na e-mail existující password identity | **stejná** identita, doplněný `googleId`, heslo zachované, 1 dokument, `authMethodList: ["password","google"]` |
+| druhé přihlášení stejným `googleId` | tatáž identita, bez zápisu |
+| nepotvrzený e-mail cizí identity | `409 emailNotVerified`, dokument nepřidán |
+| indexy | `{email:1}` unique + partial `$type: string`, `email_1_password_1` smazaný |
+| duplicitní e-mail vložený přímo do DB | zablokovaný (`11000`) |
+| dvě identity bez e-mailu | povolené |
+
+Testovací dokumenty jsou z dev DB smazané.
 
 **Fáze 2 — Facebook**
 

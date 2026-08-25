@@ -25,6 +25,13 @@ const IS_PROD = process.env.NODE_ENV === "production";
 // stream as empty and overwrites req.body with {}.
 const parseJson = express.json({ limit: BODY_LIMIT });
 
+// Same envelope the rest of the server answers errors with, so a client has one shape
+// to handle. These routes are plain express routes, outside the command pipeline that
+// would otherwise do this.
+function sendError(res, status, code, message) {
+  return res.status(status).json({ error: { code: Config.ERROR_PREFIX + code, message } });
+}
+
 function getCookieOptions() {
   return {
     httpOnly: true,
@@ -63,16 +70,42 @@ const Routes = {
       const { firstName, surname, email, password } = req.body;
 
       try {
+        if (!identity.isEmailValid(email)) return sendError(res, 400, "invalidEmail", "E-mail is not a valid address");
+
+        const passwordProblem = identity.checkPassword(password);
+        if (passwordProblem) return sendError(res, 400, passwordProblem.code, passwordProblem.message);
+
         let existing = await identity.findByEmail(email);
 
         if (existing) {
-          return res.status(400).json({ message: "Identity already exists" });
+          // One identity per e-mail (docs/auth.md, 5.1), and registering a password on
+          // somebody else's address must not hand the account over: nothing here proves
+          // the address belongs to whoever is asking. Signing in through a provider does
+          // prove it, so that is what the message points at. Until e-mail verification
+          // exists (R2), this is the one direction that cannot be mapped automatically.
+          const methodList = identity.getAuthMethodList(existing);
+          return sendError(
+            res,
+            400,
+            "identityExists",
+            methodList.length
+              ? `Identity already exists, sign in with: ${methodList.join(", ")}`
+              : "Identity already exists",
+          );
         }
 
-        existing = await identity.create({ name: [firstName, surname].join(" "), firstName, surname, email, password });
+        existing = await identity.create({
+          name: [firstName, surname].filter(Boolean).join(" "),
+          firstName,
+          surname,
+          email,
+          password,
+          registrationType: "password",
+        });
         setToken(res, identity.createToken(existing));
 
-        res.status(201).json({ identity: existing });
+        // Never the raw document: it carries the bcrypt hash.
+        res.status(201).json({ identity: identity.getBasicData(existing) });
       } catch (err) {
         console.error("/auth/register: Unexpected exception", err);
         res.status(500).json({
@@ -91,19 +124,18 @@ const Routes = {
       try {
         const found = await identity.findByEmail(email);
 
-        if (!found) {
-          return res.status(400).json({ message: "Invalid credentials" });
-        }
-
-        const isMatch = await identity.matchPassword(password, found.password);
-
-        if (!isMatch) {
-          return res.status(400).json({ message: "Invalid credentials" });
+        // No password on the document means the account exists but is signed into
+        // through a provider. bcrypt.compare(password, undefined) would throw and turn
+        // that into a 500; and the answer has to be the same as for a wrong password,
+        // so that /login does not become a way to ask which accounts exist.
+        if (!found || !found.password || !(await identity.matchPassword(password, found.password))) {
+          return sendError(res, 400, "invalidCredentials", "Invalid credentials");
         }
 
         setToken(res, identity.createToken(found));
 
-        res.json({ identity: found });
+        // Never the raw document: it carries the bcrypt hash.
+        res.json({ identity: identity.getBasicData(found) });
       } catch (err) {
         console.error("/auth/login: Unexpected exception", err);
         res.status(500).json({
@@ -146,14 +178,10 @@ const Routes = {
     // production -- to a client that asked for JSON.
     router.use((err, req, res, next) => {
       if (err?.type === "entity.too.large") {
-        return res.status(413).json({
-          error: { code: Config.ERROR_PREFIX + "bodyTooLarge", message: `Request body is over ${BODY_LIMIT}` },
-        });
+        return sendError(res, 413, "bodyTooLarge", `Request body is over ${BODY_LIMIT}`);
       }
       if (err instanceof SyntaxError && err.status === 400) {
-        return res.status(400).json({
-          error: { code: Config.ERROR_PREFIX + "invalidJson", message: "Request body is not valid JSON" },
-        });
+        return sendError(res, 400, "invalidJson", "Request body is not valid JSON");
       }
       return next(err);
     });

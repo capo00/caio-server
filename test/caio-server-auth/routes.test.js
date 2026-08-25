@@ -20,7 +20,18 @@ function createMockIdentity() {
     createToken: jest.fn().mockReturnValue("new-jwt"),
     matchPassword: jest.fn(),
     getBasicData: jest.fn((d) => ({ identity: d.identity, name: d.name })),
+    getAuthMethodList: jest.fn(() => []),
+    isEmailValid: jest.fn(() => true),
+    checkPassword: jest.fn(() => null),
   };
+}
+
+// The envelope every error on these routes is answered with.
+function expectError(res, status, code) {
+  expect(res.status).toHaveBeenCalledWith(status);
+  expect(res.json).toHaveBeenCalledWith({
+    error: expect.objectContaining({ code: "caio-server-auth/" + code }),
+  });
 }
 
 function createMockReqRes(overrides = {}) {
@@ -124,33 +135,59 @@ describe("Auth Routes", () => {
   describe("POST /register", () => {
     it("should register new identity and return 201", async () => {
       identity.findByEmail.mockResolvedValue(null);
-      const newUser = { identity: "1-1-1", name: "John Doe", email: "j@t.com" };
+      const newUser = { identity: "1-1-1", name: "John Doe", email: "j@t.com", password: "bcrypt-hash" };
       identity.create.mockResolvedValue(newUser);
 
       const handler = getHandler(router, "post", "/register");
       const { req, res } = createMockReqRes({
-        body: { firstName: "John", surname: "Doe", email: "j@t.com", password: "secret" },
+        body: { firstName: "John", surname: "Doe", email: "j@t.com", password: "Heslo12345" },
       });
       await handler(req, res);
 
       expect(identity.create).toHaveBeenCalledWith(
-        expect.objectContaining({ email: "j@t.com", firstName: "John" })
+        expect.objectContaining({ email: "j@t.com", firstName: "John", registrationType: "password" })
       );
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.cookie).toHaveBeenCalledWith("token", "new-jwt", expect.any(Object));
+      // Basic data only -- the document carries the bcrypt hash.
+      expect(res.json).toHaveBeenCalledWith({ identity: { identity: "1-1-1", name: "John Doe" } });
     });
 
-    it("should return 400 when email already exists", async () => {
-      identity.findByEmail.mockResolvedValue({ identity: "existing" });
+    it("should return 400 when email already exists, naming the ways in", async () => {
+      identity.findByEmail.mockResolvedValue({ identity: "existing", googleId: "g-1" });
+      identity.getAuthMethodList.mockReturnValue(["google"]);
 
       const handler = getHandler(router, "post", "/register");
       const { req, res } = createMockReqRes({
-        body: { email: "existing@t.com" },
+        body: { email: "existing@t.com", password: "Heslo12345" },
       });
       await handler(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: "Identity already exists" });
+      expectError(res, 400, "identityExists");
+      expect(res.json.mock.calls[0][0].error.message).toContain("google");
+      expect(identity.create).not.toHaveBeenCalled();
+    });
+
+    it("should reject an invalid e-mail before touching the database", async () => {
+      identity.isEmailValid.mockReturnValue(false);
+
+      const handler = getHandler(router, "post", "/register");
+      const { req, res } = createMockReqRes({ body: { email: "not-an-email", password: "Heslo12345" } });
+      await handler(req, res);
+
+      expectError(res, 400, "invalidEmail");
+      expect(identity.findByEmail).not.toHaveBeenCalled();
+    });
+
+    it("should reject a password the rules turn down", async () => {
+      identity.checkPassword.mockReturnValue({ code: "passwordTooShort", message: "too short" });
+
+      const handler = getHandler(router, "post", "/register");
+      const { req, res } = createMockReqRes({ body: { email: "j@t.com", password: "x" } });
+      await handler(req, res);
+
+      expectError(res, 400, "passwordTooShort");
+      expect(identity.findByEmail).not.toHaveBeenCalled();
     });
 
     it("should return 500 on unexpected error", async () => {
@@ -183,7 +220,8 @@ describe("Auth Routes", () => {
       });
       await handler(req, res);
 
-      expect(res.json).toHaveBeenCalledWith({ identity: found });
+      // Basic data only -- the document carries the bcrypt hash.
+      expect(res.json).toHaveBeenCalledWith({ identity: { identity: "1-1-1", name: "John" } });
       expect(res.cookie).toHaveBeenCalledWith("token", "new-jwt", expect.any(Object));
     });
 
@@ -196,8 +234,20 @@ describe("Auth Routes", () => {
       });
       await handler(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: "Invalid credentials" });
+      expectError(res, 400, "invalidCredentials");
+    });
+
+    it("should return 400, not 500, for an identity that has no password", async () => {
+      // Signed up through a provider: bcrypt.compare(password, undefined) would throw,
+      // and the answer must not give away that the account exists either.
+      identity.findByEmail.mockResolvedValue({ identity: "1-1-1", googleId: "g-1" });
+
+      const handler = getHandler(router, "post", "/login");
+      const { req, res } = createMockReqRes({ body: { email: "j@t.com", password: "Heslo12345" } });
+      await handler(req, res);
+
+      expectError(res, 400, "invalidCredentials");
+      expect(identity.matchPassword).not.toHaveBeenCalled();
     });
 
     it("should return 400 when password does not match", async () => {
@@ -210,8 +260,7 @@ describe("Auth Routes", () => {
       });
       await handler(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: "Invalid credentials" });
+      expectError(res, 400, "invalidCredentials");
     });
 
     it("should return 500 on unexpected error", async () => {
