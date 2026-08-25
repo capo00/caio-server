@@ -9,7 +9,21 @@ import path from "path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Credentials are the only thing these routes accept, so anything larger is either a
+// mistake or an attempt to make the server hash a megabyte.
+const BODY_LIMIT = "10kb";
+
 const IS_PROD = process.env.NODE_ENV === "production";
+
+// The router carries its own body parser, because App.init() mounts these routes
+// before it registers a global express.json() -- so req.body was undefined here and
+// /register and /login answered every request with a TypeError. It is attached per
+// route rather than to the whole router or the whole app for two reasons: Auth.init()
+// has to work on an app that has no parser of its own, and there must be exactly one
+// parser per path. body-parser@2 no longer skips an already parsed request (read.js
+// only checks isFinished() and hasBody()), so a second parser reads the consumed
+// stream as empty and overwrites req.body with {}.
+const parseJson = express.json({ limit: BODY_LIMIT });
 
 function getCookieOptions() {
   return {
@@ -45,7 +59,7 @@ const Routes = {
       return res.json({ identity: id });
     });
 
-    router.post("/register", async (req, res) => {
+    router.post("/register", parseJson, async (req, res) => {
       const { firstName, surname, email, password } = req.body;
 
       try {
@@ -71,7 +85,7 @@ const Routes = {
       }
     });
 
-    router.post("/login", async (req, res) => {
+    router.post("/login", parseJson, async (req, res) => {
       const { email, password } = req.body;
 
       try {
@@ -126,6 +140,23 @@ const Routes = {
         });
       }
     );
+
+    // A body the parser rejects (malformed JSON, over the limit) would otherwise reach
+    // express' default handler, which answers an HTML page -- with a stack trace outside
+    // production -- to a client that asked for JSON.
+    router.use((err, req, res, next) => {
+      if (err?.type === "entity.too.large") {
+        return res.status(413).json({
+          error: { code: Config.ERROR_PREFIX + "bodyTooLarge", message: `Request body is over ${BODY_LIMIT}` },
+        });
+      }
+      if (err instanceof SyntaxError && err.status === 400) {
+        return res.status(400).json({
+          error: { code: Config.ERROR_PREFIX + "invalidJson", message: "Request body is not valid JSON" },
+        });
+      }
+      return next(err);
+    });
 
     return router;
   }

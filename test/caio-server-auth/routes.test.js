@@ -45,15 +45,33 @@ function getRouteHandler(router, method, path) {
   return call?.handlers;
 }
 
+// The route handler is registered last; anything before it is middleware (the body parser).
+function getHandler(router, method, path) {
+  const handlers = getRouteHandler(router, method, path);
+  return handlers?.[handlers.length - 1];
+}
+
 // Intercept express.Router to capture route registrations
 jest.mock("express", () => {
   const routes = [];
+  const middleware = [];
+  const jsonMiddleware = jest.fn();
+  // Kept outside the mock functions: the parser is created once when the module is
+  // imported, and jest.clearAllMocks() in beforeEach would wipe the call record.
+  const jsonOptions = [];
   const router = {
     _routes: routes,
+    _middleware: middleware,
     get: jest.fn((path, ...handlers) => routes.push({ method: "get", path, handlers })),
     post: jest.fn((path, ...handlers) => routes.push({ method: "post", path, handlers })),
+    use: jest.fn((...handlers) => middleware.push(...handlers)),
   };
-  return { Router: () => router };
+  return {
+    Router: () => router,
+    json: jest.fn((options) => { jsonOptions.push(options); return jsonMiddleware; }),
+    _jsonMiddleware: jsonMiddleware,
+    _jsonOptions: jsonOptions,
+  };
 });
 
 describe("Auth Routes", () => {
@@ -66,6 +84,7 @@ describe("Auth Routes", () => {
     const express = require("express");
     const freshRouter = express.Router();
     freshRouter._routes.length = 0;
+    freshRouter._middleware.length = 0;
 
     identity = createMockIdentity();
     router = Routes.init("/auth", identity, "google", "token");
@@ -76,9 +95,9 @@ describe("Auth Routes", () => {
       const identityData = { identity: "1-1-1", name: "John" };
       jwt.verify.mockReturnValue(identityData);
 
-      const handlers = getRouteHandler(router, "get", "/");
+      const handler = getHandler(router, "get", "/");
       const { req, res } = createMockReqRes({ cookies: { token: "valid-jwt" } });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.json).toHaveBeenCalledWith({ identity: identityData });
     });
@@ -86,17 +105,17 @@ describe("Auth Routes", () => {
     it("should return null identity for invalid token", async () => {
       jwt.verify.mockImplementation(() => { throw new Error("expired"); });
 
-      const handlers = getRouteHandler(router, "get", "/");
+      const handler = getHandler(router, "get", "/");
       const { req, res } = createMockReqRes({ cookies: { token: "bad-jwt" } });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.json).toHaveBeenCalledWith({ identity: null });
     });
 
     it("should return null identity when no cookie", async () => {
-      const handlers = getRouteHandler(router, "get", "/");
+      const handler = getHandler(router, "get", "/");
       const { req, res } = createMockReqRes();
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.json).toHaveBeenCalledWith({ identity: null });
     });
@@ -108,11 +127,11 @@ describe("Auth Routes", () => {
       const newUser = { identity: "1-1-1", name: "John Doe", email: "j@t.com" };
       identity.create.mockResolvedValue(newUser);
 
-      const handlers = getRouteHandler(router, "post", "/register");
+      const handler = getHandler(router, "post", "/register");
       const { req, res } = createMockReqRes({
         body: { firstName: "John", surname: "Doe", email: "j@t.com", password: "secret" },
       });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(identity.create).toHaveBeenCalledWith(
         expect.objectContaining({ email: "j@t.com", firstName: "John" })
@@ -124,11 +143,11 @@ describe("Auth Routes", () => {
     it("should return 400 when email already exists", async () => {
       identity.findByEmail.mockResolvedValue({ identity: "existing" });
 
-      const handlers = getRouteHandler(router, "post", "/register");
+      const handler = getHandler(router, "post", "/register");
       const { req, res } = createMockReqRes({
         body: { email: "existing@t.com" },
       });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ message: "Identity already exists" });
@@ -138,9 +157,9 @@ describe("Auth Routes", () => {
       identity.findByEmail.mockRejectedValue(new Error("db error"));
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 
-      const handlers = getRouteHandler(router, "post", "/register");
+      const handler = getHandler(router, "post", "/register");
       const { req, res } = createMockReqRes({ body: { email: "j@t.com" } });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith(
@@ -158,11 +177,11 @@ describe("Auth Routes", () => {
       identity.findByEmail.mockResolvedValue(found);
       identity.matchPassword.mockResolvedValue(true);
 
-      const handlers = getRouteHandler(router, "post", "/login");
+      const handler = getHandler(router, "post", "/login");
       const { req, res } = createMockReqRes({
         body: { email: "j@t.com", password: "secret" },
       });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.json).toHaveBeenCalledWith({ identity: found });
       expect(res.cookie).toHaveBeenCalledWith("token", "new-jwt", expect.any(Object));
@@ -171,11 +190,11 @@ describe("Auth Routes", () => {
     it("should return 400 when email not found", async () => {
       identity.findByEmail.mockResolvedValue(null);
 
-      const handlers = getRouteHandler(router, "post", "/login");
+      const handler = getHandler(router, "post", "/login");
       const { req, res } = createMockReqRes({
         body: { email: "nobody@t.com", password: "x" },
       });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ message: "Invalid credentials" });
@@ -185,11 +204,11 @@ describe("Auth Routes", () => {
       identity.findByEmail.mockResolvedValue({ password: "hashed" });
       identity.matchPassword.mockResolvedValue(false);
 
-      const handlers = getRouteHandler(router, "post", "/login");
+      const handler = getHandler(router, "post", "/login");
       const { req, res } = createMockReqRes({
         body: { email: "j@t.com", password: "wrong" },
       });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ message: "Invalid credentials" });
@@ -199,11 +218,11 @@ describe("Auth Routes", () => {
       identity.findByEmail.mockRejectedValue(new Error("db error"));
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 
-      const handlers = getRouteHandler(router, "post", "/login");
+      const handler = getHandler(router, "post", "/login");
       const { req, res } = createMockReqRes({
         body: { email: "j@t.com", password: "x" },
       });
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
       consoleSpy.mockRestore();
@@ -212,12 +231,77 @@ describe("Auth Routes", () => {
 
   describe("POST /logout", () => {
     it("should clear cookie and return empty object", async () => {
-      const handlers = getRouteHandler(router, "post", "/logout");
+      const handler = getHandler(router, "post", "/logout");
       const { req, res } = createMockReqRes();
-      await handlers[0](req, res);
+      await handler(req, res);
 
       expect(res.clearCookie).toHaveBeenCalledWith("token", expect.any(Object));
       expect(res.json).toHaveBeenCalledWith({});
+    });
+  });
+  // App.init() mounts these routes before it registers a global express.json(), so
+  // without a parser of their own req.body is undefined and both routes answered
+  // every request with a TypeError.
+  describe("body parsing", () => {
+    it("should put a json parser in front of /register and /login", () => {
+      const express = require("express");
+
+      for (const path of ["/register", "/login"]) {
+        const handlers = getRouteHandler(router, "post", path);
+        expect(handlers.length).toBe(2);
+        expect(handlers[0]).toBe(express._jsonMiddleware);
+      }
+      expect(express._jsonOptions[0]).toEqual(expect.objectContaining({ limit: "10kb" }));
+    });
+
+    it("should not parse a body on routes that have none", () => {
+      for (const [method, path] of [["get", "/"], ["post", "/logout"]]) {
+        expect(getRouteHandler(router, method, path).length).toBe(1);
+      }
+    });
+  });
+
+  describe("parser errors", () => {
+    function getErrorHandler() {
+      const express = require("express");
+      return express.Router()._middleware.find((mw) => mw.length === 4);
+    }
+
+    it("should answer malformed JSON with 400 instead of an HTML stack trace", () => {
+      const { req, res } = createMockReqRes();
+      const next = jest.fn();
+      const err = Object.assign(new SyntaxError("Unexpected token }"), { status: 400 });
+
+      getErrorHandler()(err, req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        error: { code: "caio-server-auth/invalidJson", message: "Request body is not valid JSON" },
+      });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it("should answer an oversized body with 413", () => {
+      const { req, res } = createMockReqRes();
+      const next = jest.fn();
+
+      getErrorHandler()({ type: "entity.too.large" }, req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(413);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.objectContaining({ code: "caio-server-auth/bodyTooLarge" }) })
+      );
+    });
+
+    it("should pass any other error on", () => {
+      const { req, res } = createMockReqRes();
+      const next = jest.fn();
+      const err = new Error("something else");
+
+      getErrorHandler()(err, req, res, next);
+
+      expect(next).toHaveBeenCalledWith(err);
+      expect(res.status).not.toHaveBeenCalled();
     });
   });
 });
