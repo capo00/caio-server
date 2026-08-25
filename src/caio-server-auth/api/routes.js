@@ -66,6 +66,17 @@ const Routes = {
       return res.json({ identity: id });
     });
 
+    // What the login page needs to render itself: which providers this deployment
+    // actually has credentials for, and the password rule -- so the rule exists in one
+    // place instead of being copied into the page (docs/auth.md, 5.2 and 5.3).
+    router.get("/config", (req, res) => {
+      const { minLength, maxBytes, patternSource, patternFlags } = Config.password;
+      res.json({
+        providerList: Config.getProviderList(),
+        password: { minLength, maxBytes, patternSource, patternFlags },
+      });
+    });
+
     router.post("/register", parseJson, async (req, res) => {
       const { firstName, surname, email, password } = req.body;
 

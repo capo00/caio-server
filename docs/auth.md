@@ -1,10 +1,10 @@
 # Login: Facebook a jméno/heslo — plán
 
-Stav: **krok 0 a fáze 1 hotové (2026-08-25)**, před sebou fáze 2 (Facebook), 3 (přihlašovací stránka) a 4.
+Stav: **krok 0, fáze 1 a fáze 3 hotové (2026-08-25)**; zbývá fáze 2 (Facebook) a fáze 4 (ověření na app-v1 + dokumentace appky).
 
 Zadání (úkol #3 z 2026-08-24): *„login budu potřebovat rozšířit o fb a o username a heslo“*.
-Jméno/heslo na serveru po kroku 0 a fázi 1 **funguje a je použitelné** (nálezy N1–N4, N8, N9 vyřešené),
-chybí mu ale UI; Facebook chybí celý.
+Jméno/heslo **funguje na serveru i v UI** (krok 0 a fáze 1 na serveru, fáze 3 přihlašovací stránka);
+nálezy N1–N5, N8 a N9 jsou vyřešené. Facebook chybí celý (fáze 2), s ním i N6.
 
 ---
 
@@ -17,6 +17,7 @@ chybí mu ale UI; Facebook chybí celý.
 | Route | Metoda | Stav |
 |---|---|---|
 | `/auth` | GET | funguje — vrátí identitu z JWT cookie, nebo `{ identity: null }` |
+| `/auth/config` | GET | providery s credentials + pravidlo na heslo, pro přihlašovací stránku (fáze 3) |
 | `/auth/register` | POST | funguje; validuje e-mail i heslo a vrací jen basic data (fáze 1) |
 | `/auth/login` | POST | funguje; vrací jen basic data, identita bez hesla dá 400 (fáze 1) |
 | `/auth/logout` | POST | funguje — smaže cookie |
@@ -37,9 +38,11 @@ Identita je jeden dokument v kolekci `sys_identity` (nebo `<collectionName>`):
 
 ### Klient (`caio-ui-auth`)
 
-- `SessionProvider` drží `{ identity, state, login(), logout() }`. `login()` umí **jen Google** a **jen popupem** (`window.open("/auth/google")`), identitu čeká z `postMessage`.
-- `Unauthenticated` má tlačítko *Přihlásit se* (volá `login()`) a *Registrovat se*, které je `disabled` a v `onClick` volá **neexistující `register()`** (N5).
-- Žádná komponenta pro jméno/heslo, žádné volání `/auth/login` ani `/auth/register`.
+Stav před fází 3 (co se změnilo, je v kapitole 4, *Fáze 3: hotovo*):
+
+- `SessionProvider` drží `{ identity, state, login(), logout() }`. `login()` umělo **jen Google** a **jen popupem** (`window.open("/auth/google")`), identitu čeká z `postMessage`.
+- `Unauthenticated` mělo tlačítko *Přihlásit se* (volá `login()`) a *Registrovat se*, které bylo `disabled` a v `onClick` volalo **neexistující `register()`** (N5).
+- Žádné UI pro jméno/heslo, žádné volání `/auth/login` ani `/auth/register`.
 
 ---
 
@@ -293,6 +296,45 @@ Testovací dokumenty jsou z dev DB smazané.
    jen dál poslouchá `postMessage`.
 5. `Unauthenticated`: tlačítko *Přihlásit se* otevře popup; smazat mrtvé *Registrovat se*
    volající neexistující `register()` (N5) — registrace je teď v popupu.
+
+### Fáze 3: hotovo 2026-08-25
+
+Rozdělení podle 5.2: stránku vlastní `caio-ui`, do buildu ji doveze devkit, pravidla dodá server.
+
+- **`caio-server`**: `GET /auth/config` → `{ providerList, password: { minLength, maxBytes,
+  patternSource, patternFlags } }`. `providerList` se odvozuje z přítomnosti credentials
+  (`Config.getProviderList()`), takže se nenabízí provider, který na serveru není.
+- **`caio-ui`**: `static/login/` — `login.html`, `login.css`, `login.js`. Bez uu5, bez Reactu,
+  jeden `<script>`, celá stránka ~2 kB HTML. Umí Google/Facebook tlačítka podle `providerList`,
+  přihlášení i registraci jménem a heslem, validaci hesla podle pravidla ze serveru, hlášky ze
+  serverových chyb, `postMessage` + `window.close()` v popupu a `location.href = "/"` bez openera.
+  `SessionProvider.login()` otevírá `/login.html`; z `Unauthenticated` zmizelo mrtvé tlačítko
+  *Registrovat se* (N5).
+- **`caio-devkit`**: plugin `caio-devkit:login-page` kopíruje `node_modules/caio-ui/static/login/*`
+  do `public/` a do stránky doplní `appName` a `theme_color` z `assets/meta/manifest.json`.
+  Vlastní `client/public/login.html` v appce má přednost; chybějící `caio-ui` nebo starší verze
+  bez stránky se jen zaloguje.
+
+**Ověřeno** v headless Chrome přes CDP proti `app-v1` (server na `:3998`, Mongo lokálně):
+
+| Kontrola | Výsledek |
+|---|---|
+| stránka se vykreslí z manifestu | titulek `app-v1 — přihlášení`, heading `app-v1`, `--caio-theme: #004191` |
+| žádné uu5/React | `window.Uu5Loader` i `window.React` `undefined`, jediný skript `/login.js` |
+| providery z `/auth/config` | tlačítko *Přihlásit se přes Google*, oddělovač viditelný |
+| přepnutí na registraci | tlačítko *Registrovat se*, pole jméno/příjmení, hláška o pravidle hesla |
+| krátké heslo | zachyceno **na stránce**, bez requestu |
+| registrace formulářem | `postMessage({type:"auth", identity})` s `authMethodList:["password"]`, origin `http://localhost:3998`, `window.close()` zavoláno |
+| cookie po registraci | `GET /auth` zná identitu |
+| opakované přihlášení heslem | tatáž identita |
+| špatné heslo / existující e-mail | `Invalid credentials` / `Identity already exists, sign in with: password` |
+| tlačítko Google | naviguje přes `/auth/google` na `accounts.google.com` (na `app-v1` skončí chybou, protože credentials jsou placeholdery) |
+| `GET /login` bez přípony | vrací appku (`<title>app-v1</title>`), stránka je jen na `/login.html` |
+| konzole | prázdná |
+
+Otevřené zůstává: **N6** (strategie bez credentials shodí start) a **zobrazení chyby z callbacku**
+— když `loginWithProvider` odmítne (409 z N9), popup dnes ukáže HTML 500 z Expressu. Obojí patří
+k fázi 2 (Facebook), protože se to řeší na tom samém místě.
 
 **Fáze 4 — ověření na `app-v1` + dokumentace**
 

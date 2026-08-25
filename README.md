@@ -255,11 +255,35 @@ Registered routes (relative to `prefixPath`):
 | Route                       | Method | Desc                                                              |
 |-----------------------------|--------|-------------------------------------------------------------------|
 | `/`                         | GET    | Returns current identity from JWT cookie.                         |
-| `/register`                 | POST   | Registers a new identity with `{ firstName, surname, email, password }`. |
-| `/login`                    | POST   | Logs in with `{ email, password }`. Sets JWT cookie.              |
+| `/config`                   | GET    | What a login page needs to render itself: `{ providerList, password: { minLength, maxBytes, patternSource, patternFlags } }`. `providerList` holds only the providers this deployment has credentials for. |
+| `/register`                 | POST   | Registers a new identity with `{ firstName, surname, email, password }`. Validates the e-mail and the password rule, and answers with basic data only -- never the stored hash. |
+| `/login`                    | POST   | Logs in with `{ email, password }`. Sets JWT cookie, answers with basic data. |
 | `/logout`                   | POST   | Clears JWT cookie.                                                |
 | `/google`                   | GET    | Initiates Google OAuth flow.                                      |
 | `/google/callback`          | GET    | Google OAuth callback. Sets JWT cookie and closes popup.          |
+
+Errors come back as `{ error: { code, message } }` with codes prefixed `caio-server-auth/`:
+`invalidEmail`, `passwordTooShort` / `passwordTooLong` / `passwordTooSimple`, `identityExists`,
+`invalidCredentials`, `invalidJson`, `bodyTooLarge`.
+
+**One identity per e-mail.** Google, Facebook and a password all live on the same document
+(`googleId`, `facebookId`, `password`), and `getBasicData()` returns an `authMethodList` derived
+from them. Signing in through a provider pairs onto an existing identity by e-mail and stores the
+provider id on it -- but only when the provider says the e-mail is verified, otherwise anyone able
+to set a foreign address at some provider could take the account over. Two consequences worth
+knowing:
+
+- registering a password on an e-mail that already has an identity is refused (`identityExists`)
+  and the message names the ways in that do work. Nothing here proves the address belongs to
+  whoever is asking; until e-mail verification exists, this direction cannot be automatic.
+- a provider handing over an **unverified** e-mail that already belongs to an identity is refused
+  with `409 identity/emailNotVerified` rather than creating a second account.
+
+The rationale, the decisions behind it and what is still open live in [docs/auth.md](docs/auth.md).
+
+The password rule (`minLength: 10`, at most 72 bytes -- bcrypt's own limit -- one lower-case, one
+upper-case, one digit) sits in `caio-server-auth/config` and is served from `/auth/config`, so a
+client never has to repeat it.
 
 #### Authentication.authentication
 
