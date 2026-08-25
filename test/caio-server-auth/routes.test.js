@@ -5,12 +5,15 @@ jest.mock("fs");
 jest.mock("../../src/caio-server-auth/config/config", () => ({
   token: { jwtSecret: "test-secret", jwtLifetime: "1d" },
   google: { callbackUc: "google/callback" },
+  password: { minLength: 10, maxBytes: 72, patternSource: "(?=.*\\d)", patternFlags: "u" },
   ERROR_PREFIX: "caio-server-auth/",
 }));
 
 jest.mock("../../src/caio-server-auth/abl/identity", () => ({}));
 
 import jwt from "jsonwebtoken";
+import fs from "fs";
+import passport from "passport";
 import Routes from "../../src/caio-server-auth/api/routes.js";
 
 function createMockIdentity() {
@@ -351,6 +354,116 @@ describe("Auth Routes", () => {
 
       expect(next).toHaveBeenCalledWith(err);
       expect(res.status).not.toHaveBeenCalled();
+    });
+  });
+  // A provider with no credentials in the environment is simply not offered: no
+  // strategy, no button on the login page, and its routes say so instead of falling
+  // through to the SPA fallback, which answers extensionless paths with index.html.
+  describe("providers that are not configured", () => {
+    const saved = { ...process.env };
+
+    beforeEach(() => {
+      for (const key of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]) delete process.env[key];
+      fs.readFile.mockImplementation((file, encoding, cb) => cb(null, "<p>%s</p>"));
+    });
+
+    afterAll(() => {
+      process.env = saved;
+    });
+
+    it("should leave the provider out of /config", () => {
+      const handler = getHandler(router, "get", "/config");
+      const { req, res } = createMockReqRes();
+      handler(req, res);
+
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ providerList: [], password: expect.objectContaining({ minLength: 10 }) }),
+      );
+    });
+
+    it("should list it once the credentials are there", () => {
+      process.env.GOOGLE_CLIENT_ID = "id";
+      process.env.GOOGLE_CLIENT_SECRET = "secret";
+
+      const handler = getHandler(router, "get", "/config");
+      const { req, res } = createMockReqRes();
+      handler(req, res);
+
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ providerList: ["google"] }));
+    });
+
+    it("should answer the sign-in route with a page saying it is unavailable", () => {
+      const handler = getHandler(router, "get", "/google");
+      const { req, res } = createMockReqRes({ headers: {} });
+      handler(req, res, jest.fn());
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.send).toHaveBeenCalledWith(expect.stringContaining("providerNotConfigured"));
+      expect(passport.authenticate).not.toHaveBeenCalled();
+    });
+
+    it("should answer the callback route the same way", () => {
+      const handler = getRouteHandler(router, "get", "/google/callback")[0];
+      const { req, res } = createMockReqRes();
+      handler(req, res, jest.fn());
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(passport.authenticate).not.toHaveBeenCalled();
+    });
+
+    it("should register routes for the provider anyway", () => {
+      // Without a registered route the request would fall through to the SPA fallback
+      // and come back as index.html with status 200.
+      expect(getRouteHandler(router, "get", "/google")).toBeDefined();
+      expect(getRouteHandler(router, "get", "/google/callback")).toBeDefined();
+    });
+  });
+
+  describe("a failed provider sign-in", () => {
+    function getErrorHandler() {
+      const express = require("express");
+      return express.Router()._middleware.find((mw) => mw.length === 4);
+    }
+
+    beforeEach(() => {
+      fs.readFile.mockImplementation((file, encoding, cb) => cb(null, "<p>%s</p>"));
+    });
+
+    it("should render the message for a person instead of an HTML stack trace", () => {
+      const { req, res } = createMockReqRes({ path: "/google/callback" });
+      const error = jest.spyOn(console, "error").mockImplementation();
+      const err = Object.assign(new Error("E-mail is already used by another identity"), {
+        status: 409,
+        code: "caio-server-auth/identity/emailNotVerified",
+      });
+
+      getErrorHandler()(err, req, res, jest.fn());
+
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.send).toHaveBeenCalledWith(expect.stringContaining("already used by another identity"));
+      expect(fs.readFile.mock.calls[0][0]).toContain("callback-error.html");
+      error.mockRestore();
+    });
+
+    it("should fall back to 500 for an error without a status", () => {
+      const { req, res } = createMockReqRes({ path: "/google" });
+      const error = jest.spyOn(console, "error").mockImplementation();
+
+      getErrorHandler()(new Error("database down"), req, res, jest.fn());
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      error.mockRestore();
+    });
+
+    it("should leave errors on other routes to the caller", () => {
+      const { req, res } = createMockReqRes({ path: "/login" });
+      const next = jest.fn();
+      const err = new Error("something else");
+
+      getErrorHandler()(err, req, res, next);
+
+      expect(next).toHaveBeenCalledWith(err);
+      expect(res.send).not.toHaveBeenCalled();
     });
   });
 });

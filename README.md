@@ -281,6 +281,20 @@ knowing:
 
 The rationale, the decisions behind it and what is still open live in [docs/auth.md](docs/auth.md).
 
+**A provider is only offered when it is configured.** The strategy for a provider whose
+credentials are missing from the environment is not registered at all (constructing one throws,
+which used to keep an app with no Google credentials from starting), the provider is left out of
+`/auth/config`, and its routes answer that it is unavailable. Its routes stay registered on
+purpose: an unregistered path has no extension, so it would fall through to the SPA fallback and
+come back as `index.html` with status 200. Which providers exist and what each one needs is in
+`caio-server-auth/helpers/providers.js`.
+
+**A failed provider sign-in renders a page, not JSON.** The popup is looked at by a person, so
+`/auth/<provider>` and its callback answer `assets/callback-error.html` with the message --
+a refused pairing, a provider declining, a database outage -- instead of express' default HTML
+error page with a stack trace. The page also posts `{ type: "authError", message, code }` to the
+opener, so the app can stop waiting, and it stays open so the reason remains readable.
+
 The password rule (`minLength: 10`, at most 72 bytes -- bcrypt's own limit -- one lower-case, one
 upper-case, one digit) sits in `caio-server-auth/config` and is served from `/auth/config`, so a
 client never has to repeat it.
@@ -380,8 +394,8 @@ await BinaryStore.Binary.delete(binary.id);
 | NODE_ENV                     | Environment mode. Set to `development` to load `.env.development` file. Affects cookie security and MongoDB SSL.               |
 | PORT                         | Port on which the server will run.<br/>Default: 8080                                                                           |
 | MONGODB_URI                  | Uri of the mongo database. Required for authentication and creating identity.                                                  |
-| GOOGLE_CLIENT_ID             | Google client id which is generated in Google Console -> APIs & Services -> Credentials -> OAuth. Required for authentication. |
-| GOOGLE_CLIENT_SECRET         | Google secret key is generated with client id. Required for authentication.                                                    |
+| GOOGLE_CLIENT_ID             | Google client id from Google Console -> APIs & Services -> Credentials -> OAuth. **Optional**: without it (or without the secret) Google sign-in is simply not offered -- no strategy, not in `/auth/config`, and its routes say so. |
+| GOOGLE_CLIENT_SECRET         | Google secret key, generated together with the client id. Optional, see above.                                                 |
 | GOOGLE_OAUTH_URL             | Uri for log in the user.<br/>Default: https://accounts.google.com/o/oauth2/v2/auth                                             |
 | GOOGLE_ACCESS_TOKEN_URL      | Uri for getting access token.<br/>Default: https://oauth2.googleapis.com/token                                                 |
 | GOOGLE_TOKEN_INFO_URL        | Uri for getting info about the user.<br/>Default: https://oauth2.googleapis.com/tokeninfo                                      |

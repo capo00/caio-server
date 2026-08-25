@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import passport from "passport";
 import DefaultIdentity from "../abl/identity.js";
 import Config from "../config/config.js";
+import Passport from "../helpers/passport.js";
+import { PROVIDERS, getProviderList, isConfigured } from "../helpers/providers.js";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -72,7 +74,7 @@ const Routes = {
     router.get("/config", (req, res) => {
       const { minLength, maxBytes, patternSource, patternFlags } = Config.password;
       res.json({
-        providerList: Config.getProviderList(),
+        providerList: getProviderList(),
         password: { minLength, maxBytes, patternSource, patternFlags },
       });
     });
@@ -164,40 +166,99 @@ const Routes = {
       res.json({});
     });
 
-    let callbackURL;
-    router.get("/google", (req, res, next) => {
-      const domain = req.headers.referer;
-      const uc = prefixPath + "/" + Config.google.callbackUc;
-      callbackURL = domain ? new URL(uc, domain).toString() : uc;
-      return passport.authenticate(strategyName, { scope: ["profile", "email"], callbackURL })(req, res, next);
-    });
-    router.get(
-      "/" + Config.google.callbackUc,
-      (req, res, next) => {
-        return passport.authenticate(strategyName, { session: false, callbackURL })(req, res, next);
-      },
-      (req, res) => {
-        setToken(res, identity.createToken(req.user));
-        fs.readFile(__dirname + "/../assets/callback.html", "utf8", (err, text) => {
-          res.send(text.replace("%s", JSON.stringify(identity.getBasicData(req.user))));
-        });
-      }
-    );
+    // Every provider the module knows gets its routes, whether it is configured or not:
+    // an unregistered route would fall through to caio-server's SPA fallback, which
+    // answers an extensionless path with index.html and status 200. A provider without
+    // credentials therefore answers a page saying it is unavailable -- and it is left
+    // out of /auth/config, so no login page offers it in the first place.
+    const providerPaths = new Set();
 
-    // A body the parser rejects (malformed JSON, over the limit) would otherwise reach
-    // express' default handler, which answers an HTML page -- with a stack trace outside
-    // production -- to a client that asked for JSON.
+    for (const [name, provider] of Object.entries(PROVIDERS)) {
+      const callbackPath = "/" + provider.callbackUc;
+      providerPaths.add("/" + name);
+      providerPaths.add(callbackPath);
+
+      let callbackURL;
+
+      router.get("/" + name, (req, res, next) => {
+        if (!isConfigured(name)) return sendProviderUnavailable(res, name);
+
+        const domain = req.headers.referer;
+        const uc = prefixPath + callbackPath;
+        callbackURL = domain ? new URL(uc, domain).toString() : uc;
+        return passport.authenticate(Passport.strategyName(name, strategyName), {
+          scope: provider.scope,
+          callbackURL,
+        })(req, res, next);
+      });
+
+      router.get(
+        callbackPath,
+        (req, res, next) => {
+          if (!isConfigured(name)) return sendProviderUnavailable(res, name);
+          return passport.authenticate(Passport.strategyName(name, strategyName), { session: false, callbackURL })(
+            req,
+            res,
+            next,
+          );
+        },
+        (req, res) => {
+          setToken(res, identity.createToken(req.user));
+          sendPopupPage(res, 200, "callback.html", identity.getBasicData(req.user));
+        },
+      );
+    }
+
     router.use((err, req, res, next) => {
+      // A body the parser rejects (malformed JSON, over the limit) would otherwise reach
+      // express' default handler, which answers an HTML page -- with a stack trace
+      // outside production -- to a client that asked for JSON.
       if (err?.type === "entity.too.large") {
         return sendError(res, 413, "bodyTooLarge", `Request body is over ${BODY_LIMIT}`);
       }
       if (err instanceof SyntaxError && err.status === 400) {
         return sendError(res, 400, "invalidJson", "Request body is not valid JSON");
       }
+
+      // A provider sign-in that failed is looked at by a person in a popup, not by
+      // code: refusing to pair an unverified e-mail, a provider declining, a database
+      // outage. Express' default HTML error page (with a stack trace, outside
+      // production) is the wrong answer there -- this renders the message instead and
+      // lets the opener know the popup came back empty-handed.
+      if (providerPaths.has(req.path)) {
+        console.error(`[caio-server-auth] ${req.path} failed`, err);
+        return sendPopupPage(res, err?.status >= 400 && err.status < 600 ? err.status : 500, "callback-error.html", {
+          message: err?.message || "Přihlášení se nepovedlo.",
+          code: err?.code,
+        });
+      }
+
       return next(err);
     });
 
     return router;
+
+    function sendProviderUnavailable(res, name) {
+      return sendPopupPage(res, 404, "callback-error.html", {
+        message: `Přihlášení přes ${name} není na tomto serveru nastavené.`,
+        code: Config.ERROR_PREFIX + "providerNotConfigured",
+      });
+    }
+
+    /**
+     * Renders one of the popup pages. Both take their payload as JSON substituted for
+     * %s, so nothing from a provider or an error message is ever interpolated into
+     * markup.
+     */
+    function sendPopupPage(res, status, file, payload) {
+      fs.readFile(path.join(__dirname, "..", "assets", file), "utf8", (err, text) => {
+        if (err) {
+          console.error(`[caio-server-auth] cannot read assets/${file}`, err);
+          return res.status(500).json({ error: { code: Config.ERROR_PREFIX + "unexpected", message: "Unexpected exception" } });
+        }
+        res.status(status).send(text.replace("%s", JSON.stringify(payload)));
+      });
+    }
   }
 };
 

@@ -1,6 +1,7 @@
 # Login: Facebook a jméno/heslo — plán
 
-Stav: **krok 0, fáze 1 a fáze 3 hotové (2026-08-25)**; zbývá fáze 2 (Facebook) a fáze 4 (ověření na app-v1 + dokumentace appky).
+Stav: **krok 0, fáze 1, fáze 3 a z fáze 2 předsazené N6 + chybová stránka hotové (2026-08-25)**;
+zbývá vlastní Facebook (čeká na App ID/Secret, kapitola 7) a fáze 4.
 
 Zadání (úkol #3 z 2026-08-24): *„login budu potřebovat rozšířit o fb a o username a heslo“*.
 Jméno/heslo **funguje na serveru i v UI** (krok 0 a fáze 1 na serveru, fáze 3 přihlašovací stránka);
@@ -93,7 +94,7 @@ V `caio-ui/src/caio-ui-auth/unauthenticated.jsx` je v `actionList` `onClick: () 
 ale `register` není nikde definované ani importované. Dnes to nespadne jen proto, že to tlačítko
 je `disabled: true`.
 
-### N6 — chybějící credentials shodí start (známý problém, sem patří)
+### N6 — chybějící credentials shodí start (**vyřešeno**, viz kapitola 4)
 
 `Passport.init()` registruje `GoogleStrategy` bezpodmínečně a `new GoogleStrategy({clientID: ""})`
 hodí `TypeError: OAuth2Strategy requires a clientID option`. Přidání Facebooku tuhle vlastnost
@@ -268,6 +269,53 @@ kolize kódu identity a indexy `IdentityDao`). Proti `app-v1` a lokálnímu Mong
 
 Testovací dokumenty jsou z dev DB smazané.
 
+### N6 a chybová stránka: hotovo 2026-08-25
+
+Předsazeno před fázi 2, protože ani jedno nečeká na Facebook credentials.
+
+**N6 — provider bez credentials se prostě nenabízí.** Nový `helpers/providers.js` je registr
+providerů: co každý potřebuje z env (`envKeys`), jak se mu staví strategie a jak se mapuje profil
+na `Identity.loginWithProvider()`. Z toho pak plyne všechno ostatní:
+
+- `Passport.init()` registruje strategii **jen pro nakonfigurované** providery a u ostatních
+  zaloguje, co jim chybí. Dřív se `GoogleStrategy` stavěla bezpodmínečně a
+  `new GoogleStrategy({ clientID: "" })` hodí `TypeError: OAuth2Strategy requires a clientID
+  option`, takže appka bez Google credentials vůbec nenastartovala.
+- `GET /auth/config` vrací `providerList` z toho samého registru, takže přihlašovací stránka
+  tlačítko nenabídne.
+- Routy providera **zůstávají zaregistrované** a odpovídají „není nastavené“. Bez registrace by
+  `/auth/google` propadlo na SPA fallback, který na cestu bez přípony vrací `index.html` se
+  statusem 200 — tedy appku místo odpovědi.
+- `Passport.strategyName()` drží multi-tenant konvenci: z `google-<kolekce>` se pro každého
+  providera stane `<provider>-<kolekce>`.
+
+Env pro Facebook se tím pádem přidává jedním záznamem v registru (fáze 2); dokud tam není
+strategie, Facebook v `providerList` být nemůže, i kdyby credentials v env byly.
+
+**Chybová stránka.** `assets/callback-error.html` — popup se po nepovedeném přihlášení kouká na
+hlášku, ne na HTML 500 se stack trace z Expressu. Používá se na dvou místech: provider bez
+credentials (404) a jakákoliv chyba z callbacku, včetně odmítnutí spárování nepotvrzeného e-mailu
+(409 z N9). Stránka navíc pošle openerovi `{ type: "authError", message, code }`, aby appka
+věděla, že se popup vrátil s prázdnou, a **zůstane otevřená** — zavřít ji znamená schovat důvod.
+Payload jde do stránky jako JSON za `%s` a dosazuje se přes `textContent`, takže se do markupu
+nikdy neinterpoluje text od providera.
+
+**Ověřeno.** 193 unit testů (nové suity `providers.test.js`, `passport.test.js` a bloky
+v `routes.test.js`). Na `app-v1`, kde jsou teď v `.env.development` Google credentials **prázdné**:
+
+| Kontrola | Výsledek |
+|---|---|
+| start bez credentials | server běží; log: `google sign-in is off, missing: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET` + `no provider sign-in configured, e-mail and password only` |
+| `/auth/config` | `providerList: []` |
+| přihlašovací stránka | žádné tlačítko providera, žádný oddělovač, formulář jméno/heslo funguje |
+| `GET /auth/google` | **404** + chybová stránka „Přihlášení přes google není na tomto serveru nastavené.“ |
+| `GET /auth/google/callback` | **404** stejnou stránkou |
+| chybová stránka | vykreslí hlášku a *Zavřít okno*, žádné zbytky `%s`, openerovi pošle `authError` s `code: caio-server-auth/providerNotConfigured` |
+| s credentials (`PORT=3997 GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=…`) | `providerList: ["google"]`, tlačítko se objeví, `GET /auth/google` dá **302** na `accounts.google.com` se správným `redirect_uri` |
+
+Neověřené za běhu zůstává vykreslení chyby z **reálného** OAuth callbacku (409 z N9) — potřebuje
+skutečné credentials a účet u providera. Handler na to má unit test.
+
 **Fáze 2 — Facebook**
 
 1. Závislost `passport-facebook`, `Config.facebook = { appId, appSecret, callbackUc }` z env.
@@ -278,7 +326,8 @@ Testovací dokumenty jsou z dev DB smazané.
    na `undefined` spadne. Potřebuje fallback (viz R4).
 4. Routy `/auth/facebook` a `/auth/facebook/callback` podle vzoru Google, včetně `callbackURL`
    odvozeného z `Referer`.
-5. N6: strategii registrovat jen když má credentials, a při chybějících logovat, ne padat.
+5. ~~N6: strategii registrovat jen když má credentials~~ — **hotovo 2026-08-25** (viz níž),
+   Facebook se tím pádem přidává jedním záznamem v registru `helpers/providers.js`.
 
 **Fáze 3 — přihlašovací stránka (`caio-ui`) + její doprava (`caio-devkit`)** — tok je v 5.2
 

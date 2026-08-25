@@ -26,16 +26,8 @@ const Config = {
   // expression, and an over-strict pattern rejects valid addresses.
   emailPatternSource: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$",
 
-  /**
-   * Providers this deployment can actually sign somebody in with. Read at request
-   * time, not at import: env is loaded before this module in a server, but a test or
-   * a script may set it afterwards.
-   */
-  getProviderList() {
-    const configured = [];
-    if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) configured.push("google");
-    return configured;
-  },
+  // Which providers a deployment can actually use is decided by helpers/providers.js,
+  // next to the strategies themselves.
   ERROR_PREFIX: "caio-server-auth/",
 };
 
