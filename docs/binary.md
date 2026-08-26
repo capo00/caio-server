@@ -513,10 +513,18 @@ Sepsat postup (bucket, IAM role pro service account appky, ADC), zkontrolovat `.
 `.gcloudignore` v šabloně `caio-create-app` (dev klíč, pokud se použije, se nesmí commitnout ani
 nasadit).
 
-### Fáze 3 — klient (`caio-ui`) podle R7
+### Fáze 3 — klient (`caio-ui`) podle R7 — **hotovo 2026-08-26**
 
-`FormFile`, `BinaryProvider`; smazat `capo-google-disk/`; případně `BinaryCrud`; devkit: doplnit
-`uu5imagingg01`/`uu5imagingg01-tools` do šablony (a tím i do import mapy loaderu).
+`FormFile` (`caio-ui-elements/form-file.jsx`), `BinaryProvider`/`useBinary`
+(`caio-ui-elements/binary-context.js`, `CrudContext.create("binary")`), `BinaryCrud`
+(`caio-ui-elements/binary-crud.jsx`, generická admin tabulka bez app-specifických polí jako
+afkbratcice `tagList` — appka s vlastními poli si postaví vlastní `Crud.generate()` config).
+`capo-google-disk/` smazané celé (nikdy nebylo v `src/index.js` exportované, takže bez dopadu na
+appky). `caio-ui` peerDependencies + `caio-devkit`'s scaffold šablona doplněné o
+`uu5imagingg01`/`uu5imagingg01-tools` (verze `^2.0.0`, podle afkbratcice, ověřeno že existují
+v registry). Nová syntaxe ověřená esbuildem (`app-v1/client/node_modules/esbuild`), reálné
+vykreslení v appce je až fáze 4 (`caio-ui` nemá vlastní test/build infrastrukturu — ověřuje se
+vždy přes `app-v1`).
 
 ### Fáze 4 — ověření v `app-v1` + dokumentace
 
