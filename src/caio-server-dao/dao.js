@@ -1,4 +1,4 @@
-import { mongo, ObjectId } from "./helpers/mongo.js";
+import { mongo, connect, ObjectId } from "./helpers/mongo.js";
 import Config from "./config/config.js";
 import DaoError from "./dao-error.js";
 
@@ -46,12 +46,18 @@ class Dao {
     this._client = null;
     this._db = null;
     this._coll = null;
-    this._connectionsMap = {};
 
     if (this.uri) {
       try {
         this._initMongo();
-        this.createIndexes?.();
+        // createIndexes() is fire-and-forget here -- the constructor can't await an async
+        // method -- so a subclass that lets it reject (an unreachable/incompatible Mongo
+        // server, e.g.) turns that into an unhandled rejection that crashes the whole
+        // process, not just this collection's indexing. Catching it here makes that safe
+        // for every subclass, not just ones that remember to guard it themselves.
+        Promise.resolve(this.createIndexes?.()).catch((e) => {
+          console.warn(`[Dao/${this.collectionName}] could not create indexes:`, e?.message ?? e);
+        });
       } catch (e) {}
     }
   }
@@ -119,7 +125,7 @@ class Dao {
 
   async _exec(callback) {
     try {
-      this._connectionsMap[this.uri] ??= await this.client.connect();
+      await connect(this.uri);
     } catch (e) {
       // Not configured at all is a setup problem, not an outage -- the Atlas hint would only mislead.
       if (this.uri) console.error("Cannot connect to mongo. Check https://cloud.mongodb.com/v2/648433fc6d28c3603ac3dd22#/clusters if database is running.", e);

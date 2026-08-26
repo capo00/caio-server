@@ -5,11 +5,15 @@ class BinaryDao extends Dao {
     super("sys_binary");
   }
 
+  // Returned (not awaited here) so the base Dao constructor's own safety net catches a
+  // rejection instead of it becoming an unhandled one -- see Dao's constructor.
   createIndexes() {
-    super.createIndex({ objectName: 1 }, { unique: true });
-    super.createIndex({ size: 1 });
-    super.createIndex({ mimeType: 1 });
-    super.createIndex({ "sys.mts": 1 });
+    return Promise.all([
+      super.createIndex({ objectName: 1 }, { unique: true }),
+      super.createIndex({ size: 1 }),
+      super.createIndex({ mimeType: 1 }),
+      super.createIndex({ "sys.mts": 1 }),
+    ]);
   }
 }
 

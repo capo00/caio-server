@@ -19,6 +19,10 @@ jest.mock("../../src/caio-server-dao/helpers/mongo", () => {
 
   return {
     mongo: jest.fn(() => mockClient),
+    // The real dedup (one connect() per uri, shared across Dao instances) lives in
+    // helpers/mongo.js itself -- see mongo.test.js. This mock just forwards the call so Dao's
+    // own tests can check it asks to connect, without re-testing the dedup here.
+    connect: jest.fn((uri) => mockClient.connect(uri)),
     ObjectId: function ObjectId(id) { this._id = id; this.toString = () => `ObjectId(${id})`; },
   };
 });
@@ -60,6 +64,26 @@ describe("Dao", () => {
     }
     new TestDao("test");
     expect(createIndexes).toHaveBeenCalled();
+  });
+
+  it("should not let a rejecting createIndexes() escape as an unhandled rejection", async () => {
+    // Regression test: a subclass whose createIndexes() rejects (e.g. an unreachable Mongo
+    // server) used to crash the whole process, not just fail to build that one collection's
+    // indexes -- the constructor can't await an async method, so nothing caught it.
+    const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+    class RejectingDao extends Dao {
+      createIndexes() { return Promise.reject(new Error("index build failed")); }
+    }
+
+    new RejectingDao("rejecting");
+    // Let the fire-and-forget rejection's microtask run before asserting.
+    await Promise.resolve().then().then();
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("could not create indexes"),
+      "index build failed",
+    );
+    consoleSpy.mockRestore();
   });
 
   describe("createIndex", () => {
@@ -194,19 +218,16 @@ describe("Dao", () => {
   });
 
   describe("_exec", () => {
-    it("should cache connection", async () => {
+    it("should connect with the dao's uri before running the callback", async () => {
       mockFindChain([]);
       await dao.find();
-      await dao.find();
-      expect(mockClient.connect).toHaveBeenCalledTimes(1);
+      expect(mockClient.connect).toHaveBeenCalled();
     });
 
     it("should throw on connection error", async () => {
-      const freshDao = new Dao("test2");
-      freshDao._connectionsMap = {};
       mockClient.connect.mockRejectedValueOnce(new Error("connection refused"));
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
-      await expect(freshDao.find()).rejects.toThrow("connection refused");
+      await expect(dao.find()).rejects.toThrow("connection refused");
       consoleSpy.mockRestore();
     });
   });
