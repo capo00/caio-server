@@ -344,32 +344,59 @@ Pre-built identity use cases are available in `caio-server-auth/api/identity-api
 
 ### BinaryStore
 
-Binary file storage module using Google Drive for file storage and MongoDB for metadata.
+Binary file storage module using Google Cloud Storage for file content and MongoDB for metadata.
+It is only wired up when the app is configured for it (`BinaryStore.isConfigured()`) -- there is
+no separate `init()` call.
 
-#### BinaryStore.init(app, { googleDiskAuthPath, prefixPath = "/binary" })
+#### BinaryStore.isConfigured()
 
-Initializes the binary store configuration.
+Returns `true` when `GCS_BUCKET_NAME` is set. Use it to decide whether to spread
+`BinaryStore.createApi()` into your `App.init({ api })`, and in your own `getHealth` alongside
+`mongoConfigured`/`googleAuthConfigured` (see `caio-server-app`'s health example convention).
 
-| Param               | Desc                                            |
-|----------------------|-------------------------------------------------|
-| `app`                | Express app instance.                           |
-| `googleDiskAuthPath` | Path to Google service account key file.        |
-| `prefixPath`         | URL prefix for binary routes. Default: `"/binary"`. |
+#### BinaryStore.createApi({ list, get, create, update, delete })
+
+Registers the five `binary/*` use-cases (same names and shape as the client's
+`UiElements.CrudContext.create("binary")` expects). Each key is optional and configures auth for
+that one use-case:
+
+- omitted -- no auth (default for `list`/`get`),
+- `{ profileList: [...] }` -- requires login and at least one of the listed profiles (default
+  `true`, login only, for `create`/`update`/`delete` when omitted),
+- `{ authorize: async ({ dtoIn, identity, req }) => boolean }` -- your own authorization logic.
+
+```js
+import { App, BinaryStore } from "caio-server";
+
+App.init({
+  api: {
+    ...healthApi,
+    ...(BinaryStore.isConfigured() ? BinaryStore.createApi({
+      create: { profileList: ["operatives"] },
+      update: { profileList: ["operatives"] },
+      delete: { profileList: ["admin"] },
+    }) : {}),
+  },
+});
+```
 
 #### BinaryStore.Binary
 
-Singleton instance of `BinaryAbl` (extends `Crud`). Manages file upload, update, and deletion.
+Singleton instance of `BinaryAbl` (extends `Crud`). Manages file upload, update, and deletion --
+used internally by `createApi()`, but available directly too.
 
 | Method                      | Desc                                                                        |
 |-----------------------------|-----------------------------------------------------------------------------|
-| `create({ file, name, ...data })` | Uploads file to Google Drive and stores metadata in MongoDB.          |
-| `update({ id, file, name, ...data })` | Updates file content and/or metadata.                             |
-| `delete(id)`                | Deletes file from Google Drive and removes metadata.                        |
+| `create({ file, name, ...data })` | Uploads file to Cloud Storage under a new object name and stores metadata in MongoDB. |
+| `update({ id, file, name, ...data })` | Uploads new content under a new object (never overwrites in place), switches metadata to it, then deletes the old object. Metadata-only updates skip storage entirely. |
+| `delete(id)`                | Deletes the object from Cloud Storage (best-effort) and always removes the metadata. |
 | `list({ pageInfo, idList })`| Lists binary metadata (inherited from `Crud`).                              |
 | `get(id)`                   | Gets binary metadata by id (inherited from `Crud`).                         |
-| `parseFormDataRequest(req)` | Parses multipart/form-data request. Used internally by command handler.     |
+| `parseFormDataRequest(req, res)` | Parses multipart/form-data request. Used internally by the command handler; throws a 413 when the configured size/count limit is exceeded. |
 
-The returned data includes a `uri` field with the Google Drive file URL.
+The returned data includes a `uri` field with the public Cloud Storage object URL. `update()` gives
+every content change a fresh `uri` (new object name), so a client never serves a cached previous
+version.
 
 ```
 const { BinaryStore } = require("caio-server");
@@ -406,4 +433,7 @@ await BinaryStore.Binary.delete(binary.id);
 | GOOGLE_CALLBACK_UC           | Use case for callback for Google.<br/>Default: google/callback                                                                 |
 | JWT_SECRET                   | Secret key for App token.<br/>Default: GOOGLE_CLIENT_SECRET                                                                    |
 | JWT_LIFETIME                 | Time to live for the token.<br/>Default: 1d                                                                                    |
-| GOOGLE_DISK_PUBLIC_FOLDER_ID | Google Drive folder ID for binary file uploads. Required for BinaryStore.                                                      |
+| GCS_BUCKET_NAME              | Google Cloud Storage bucket name for binary file uploads. **Optional**: without it, `BinaryStore.isConfigured()` is `false` and the app should not spread `BinaryStore.createApi()` into `App.init({ api })`. |
+| GOOGLE_APPLICATION_CREDENTIALS | Standard GCP env var, read by `@google-cloud/storage` itself -- path to a service-account key file. Optional override; the default is Application Default Credentials (`gcloud auth application-default login` locally, the instance service account on App Engine). No `keyFilename` is ever hardcoded in code. |
+| BINARY_MAX_FILE_SIZE_MB      | Max upload size per file, in MB.<br/>Default: 25                                                                               |
+| BINARY_MAX_FILES             | Max number of files per upload request.<br/>Default: 20                                                                        |

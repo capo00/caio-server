@@ -3,6 +3,16 @@ import CaioServerAuth from "../../caio-server-auth/index.js";
 import CaioServerBinaryStore from "../../caio-server-binarystore/index.js";
 import { Error as CoreError } from "../../caio-server-core/index.js";
 
+function unauthorizedResponse(res, identity) {
+  return res.status(401).json({
+    error: {
+      code: "unauthorized",
+      message: "Logged in user is not authorized.",
+      data: { identity: identity?.identity ?? "0-0", profileList: identity?.profileList ?? [] },
+    }
+  });
+}
+
 function authorization(profiles) {
   return (req, res, next) => {
     const identity = req.identity;
@@ -10,13 +20,7 @@ function authorization(profiles) {
     if (identity?.profileList && profiles.some((profile) => identity.profileList.includes(profile))) {
       next();
     } else {
-      return res.status(401).json({
-        error: {
-          code: "unauthorized",
-          message: "Logged in user is not authorized.",
-          data: { identity: identity?.identity ?? "0-0", profileList: identity?.profileList ?? [] },
-        }
-      });
+      return unauthorizedResponse(res, identity);
     }
   };
 }
@@ -25,7 +29,7 @@ async function getDtoIn(req, validator, res, method, uc) {
   let dtoIn;
 
   if (req.headers["content-type"]?.includes("multipart/form-data")) {
-    await CaioServerBinaryStore.Binary.parseFormDataRequest(req);
+    await CaioServerBinaryStore.Binary.parseFormDataRequest(req, res);
     dtoIn = {};
     req.files.forEach(file => dtoIn[file.fieldname] = file);
     dtoIn = { ...dtoIn, ...req.body };
@@ -76,10 +80,16 @@ const Command = {
       const { method, fn, auth, validator } = apis[uc];
 
       const call = async (req, res, next) => {
-        const dtoIn = await getDtoIn(req, validator, res, method, uc);
-        const identity = req.identity;
-
+        let dtoIn;
         try {
+          dtoIn = await getDtoIn(req, validator, res, method, uc);
+          const identity = req.identity;
+
+          if (typeof auth === "function") {
+            const allowed = await auth({ dtoIn, identity, req });
+            if (!allowed) return unauthorizedResponse(res, identity);
+          }
+
           const dtoOut = await fn({ dtoIn, identity, req, res, method, useCase: uc, next, publicPath });
 
           if (dtoOut !== false) res.json(dtoOut == null ? {} : dtoOut);

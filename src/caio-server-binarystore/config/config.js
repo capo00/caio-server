@@ -1,6 +1,7 @@
 const Config = {
-  mongodbUri: process.env.MONGODB_URI,
-  publicFolderId: process.env.GOOGLE_DISK_PUBLIC_FOLDER_ID,
+  bucketName: process.env.GCS_BUCKET_NAME,
+  maxFileSizeMB: Number(process.env.BINARY_MAX_FILE_SIZE_MB) || 25,
+  maxFiles: Number(process.env.BINARY_MAX_FILES) || 20,
   ERROR_PREFIX: "caio-server-binarystore/",
 };
 

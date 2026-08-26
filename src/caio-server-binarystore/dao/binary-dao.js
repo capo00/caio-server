@@ -1,4 +1,4 @@
-import Dao from "./dao.js";
+import { Dao } from "../../caio-server-dao/index.js";
 
 class BinaryDao extends Dao {
   constructor() {
@@ -6,7 +6,7 @@ class BinaryDao extends Dao {
   }
 
   createIndexes() {
-    super.createIndex({ gFileId: 1 }, { unique: true });
+    super.createIndex({ objectName: 1 }, { unique: true });
     super.createIndex({ size: 1 });
     super.createIndex({ mimeType: 1 });
     super.createIndex({ "sys.mts": 1 });

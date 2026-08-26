@@ -93,6 +93,15 @@ describe("Command.createCommands", () => {
     expect(handlers[0]).toBe(CaioServerAuth.authentication);
   });
 
+  it("should add authentication middleware, but no authorization step, when auth is a function", () => {
+    Command.createCommands(app, {
+      "player/get": { method: "get", auth: jest.fn(), fn: jest.fn() },
+    }, { publicPath: "/public" });
+    const handlers = app._routes["GET /player/get"];
+    expect(handlers).toHaveLength(2);
+    expect(handlers[0]).toBe(CaioServerAuth.authentication);
+  });
+
   describe("handler", () => {
     it("should pass dtoIn from query to fn and respond with dtoOut", async () => {
       const fn = jest.fn().mockResolvedValue({ name: "John" });
@@ -211,7 +220,7 @@ describe("Command.createCommands", () => {
         body: { name: "photo" },
       });
       await handler(req, res, next);
-      expect(CaioServerBinaryStore.Binary.parseFormDataRequest).toHaveBeenCalledWith(req);
+      expect(CaioServerBinaryStore.Binary.parseFormDataRequest).toHaveBeenCalledWith(req, res);
     });
 
     it("should call validator and use its result", async () => {
@@ -254,6 +263,39 @@ describe("Command.createCommands", () => {
       authorizationMiddleware(req, res, next);
       expect(res.status).toHaveBeenCalledWith(401);
       expect(next).not.toHaveBeenCalled();
+    });
+
+    it("should call custom authorize fn with dtoIn/identity/req and proceed when it allows", async () => {
+      const fn = jest.fn().mockResolvedValue({});
+      const authorize = jest.fn().mockResolvedValue(true);
+      Command.createCommands(app, {
+        "binary/delete": { method: "post", auth: authorize, fn },
+      }, { publicPath: "/pub" });
+
+      // handlers[0] is the authentication middleware (mocked separately); handlers[1] is `call`,
+      // where the custom authorize fn actually runs once dtoIn/identity are available.
+      const handler = app._routes["POST /binary/delete"][1];
+      const { req, res, next } = createMockReqRes({ query: { id: "42" } });
+      req.identity = { identity: "1-1-1" };
+      await handler(req, res, next);
+      expect(authorize).toHaveBeenCalledWith({ dtoIn: { id: "42" }, identity: req.identity, req });
+      expect(fn).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("should respond 401 and skip fn when custom authorize fn rejects", async () => {
+      const fn = jest.fn();
+      const authorize = jest.fn().mockResolvedValue(false);
+      Command.createCommands(app, {
+        "binary/delete": { method: "post", auth: authorize, fn },
+      }, { publicPath: "/pub" });
+
+      const handler = app._routes["POST /binary/delete"][1];
+      const { req, res, next } = createMockReqRes({ query: { id: "42" } });
+      req.identity = { identity: "1-1-1" };
+      await handler(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(fn).not.toHaveBeenCalled();
     });
 
     it("should reject when no identity", () => {

@@ -1,15 +1,19 @@
-import os from "os";
-import dao from "../dao/binary-dao.js";
 import multer from "multer";
+import dao from "../dao/binary-dao.js";
 import { Crud, Error as CoreError } from "../../caio-server-core/index.js";
-import GoogleFileAbl from "./google-file-abl.js";
+import StorageAbl from "./storage-abl.js";
+import Config from "../config/config.js";
 
-const storage = multer.diskStorage({
-  destination: os.tmpdir(),
-  filename: (req, file, callback) => callback(null, `${file.originalname}`)
+class PayloadTooLargeError extends CoreError {
+  constructor(msg, opts) {
+    super(msg, { status: 413, code: "caio-server-binarystore/payloadTooLarge", ...opts });
+  }
+}
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: Config.maxFileSizeMB * 1024 * 1024, files: Config.maxFiles },
 });
-
-const upload = multer({ storage });
 
 class BinaryAbl extends Crud {
 
@@ -17,29 +21,29 @@ class BinaryAbl extends Crud {
     super("sys/binary", dao);
   }
 
-
   async create(data) {
     const { file, name, ...restParams } = data;
 
-    let gFile;
+    let storageFile;
     try {
-      gFile = await GoogleFileAbl.create(file);
+      storageFile = await StorageAbl.create(file);
 
       const binaryData = await this.dao.create({
-        name: name ?? gFile.name,
-        gFileId: gFile.id,
+        name: name ?? file.originalname,
+        objectName: storageFile.objectName,
+        uri: storageFile.uri,
         size: file.size,
         mimeType: file.mimetype,
         ...restParams,
       });
 
-      return this._getData({ ...binaryData, uri: gFile.uri });
+      return this._getData(binaryData);
     } catch (e) {
-      if (gFile) {
+      if (storageFile) {
         try {
-          await GoogleFileAbl.delete(gFile.id);
+          await StorageAbl.delete(storageFile.objectName);
         } catch (e) {
-          console.error("Binary cannot be deleted from GoogleFile", gFile.id, gFile.uri);
+          console.error("Binary object cannot be deleted from storage after failed create", storageFile.objectName, e);
         }
       }
       throw new Crud.Error.CreateFailed(this.name, e);
@@ -51,23 +55,46 @@ class BinaryAbl extends Crud {
     try {
       const binary = await this._get(id);
 
-      let uri;
+      // A content update never overwrites the existing object in place: it uploads under a new
+      // objectName, only switches the metadata pointer once the DB write succeeds, and only then
+      // removes the old object. That keeps a failed dao.update() from leaving either a corrupted
+      // object (partial overwrite) or metadata pointing at content that was never written -- and,
+      // as a side effect, gives every update a fresh uri so no browser/CDN cache can serve the
+      // previous content (docs/binary.md, N10 / R4).
+      let newStorageFile;
       if (file) {
-        // Update file metadata or content
-        const gFile = await GoogleFileAbl.update(binary.gFileId, file);
+        newStorageFile = await StorageAbl.create(file);
+        updatedParams.objectName = newStorageFile.objectName;
+        updatedParams.uri = newStorageFile.uri;
         updatedParams.size = file.size;
         updatedParams.mimeType = file.mimetype;
-        uri = gFile.uri;
       }
 
       if (name) updatedParams.name = name;
 
-      const binaryData = await this.dao.update({
-        ...binary,
-        ...updatedParams,
-      });
+      let binaryData;
+      try {
+        binaryData = await this.dao.update({ ...binary, ...updatedParams });
+      } catch (e) {
+        if (newStorageFile) {
+          try {
+            await StorageAbl.delete(newStorageFile.objectName);
+          } catch (e) {
+            console.error("Binary object cannot be deleted from storage after failed update", newStorageFile.objectName, e);
+          }
+        }
+        throw e;
+      }
 
-      return this._getData({ ...binaryData, uri });
+      if (newStorageFile && binary.objectName) {
+        try {
+          await StorageAbl.delete(binary.objectName);
+        } catch (e) {
+          console.error("Old binary object cannot be deleted from storage after update", binary.objectName, e);
+        }
+      }
+
+      return this._getData(binaryData);
     } catch (e) {
       throw new Crud.Error.UpdateFailed(this.name, e);
     }
@@ -75,27 +102,38 @@ class BinaryAbl extends Crud {
 
   async delete(id) {
     try {
-      const { gFileId } = await this._get(id) || {};
+      const binary = await this._get(id) || {};
 
-      if (gFileId) {
-        await GoogleFileAbl.delete(gFileId);
-        await this.dao.delete(id);
+      if (binary.objectName) {
+        try {
+          await StorageAbl.delete(binary.objectName);
+        } catch (e) {
+          console.error("Binary object cannot be deleted from storage", binary.objectName, e);
+        }
       }
+
+      await this.dao.delete(id);
     } catch (e) {
       throw new Crud.Error.DeleteFailed(this.name, e);
     }
   }
 
-  parseFormDataRequest(req) {
-    return new Promise((resolve, reject) => upload.any()(req, null, (err) => err ? reject(err) : resolve()));
+  async parseFormDataRequest(req, res) {
+    try {
+      await new Promise((resolve, reject) => upload.any()(req, res, (err) => err ? reject(err) : resolve()));
+    } catch (e) {
+      if (e.code === "LIMIT_FILE_SIZE" || e.code === "LIMIT_FILE_COUNT") {
+        throw new PayloadTooLargeError(
+          `Upload exceeds the configured limit (${Config.maxFileSizeMB} MB / ${Config.maxFiles} files).`,
+          { cause: e }
+        );
+      }
+      throw e;
+    }
   }
 
-  _getData(object) {
-    const { gFileId, ...data } = object;
-    return {
-      ...data,
-      uri: data.uri || GoogleFileAbl.getUri(gFileId),
-    };
+  _getData({ objectName, ...data }) {
+    return data;
   }
 }
 
