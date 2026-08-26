@@ -118,6 +118,26 @@ class BinaryAbl extends Crud {
     }
   }
 
+  async deleteMany(idList) {
+    try {
+      const items = await this.dao.listByIdList(idList);
+
+      await Promise.all(
+        items
+          .filter((item) => item.objectName)
+          .map((item) =>
+            StorageAbl.delete(item.objectName).catch((e) => {
+              console.error("Binary object cannot be deleted from storage", item.objectName, e);
+            }),
+          ),
+      );
+
+      await this.dao.deleteMany(idList);
+    } catch (e) {
+      throw new Crud.Error.DeleteManyFailed(this.name, e);
+    }
+  }
+
   async parseFormDataRequest(req, res) {
     try {
       await new Promise((resolve, reject) => upload.any()(req, res, (err) => err ? reject(err) : resolve()));

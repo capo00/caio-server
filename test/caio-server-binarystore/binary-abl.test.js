@@ -11,6 +11,7 @@ jest.mock("../../src/caio-server-binarystore/dao/binary-dao", () => ({
   create: jest.fn(),
   update: jest.fn(),
   delete: jest.fn(),
+  deleteMany: jest.fn(),
   get: jest.fn(),
   list: jest.fn(),
   listByIdList: jest.fn(),
@@ -196,6 +197,49 @@ describe("BinaryAbl", () => {
     it("should throw DeleteFailed when the dao lookup errors", async () => {
       dao.get.mockRejectedValue(new Error("not found"));
       await expect(BinaryAbl.delete("bad")).rejects.toThrow(Crud.Error.DeleteFailed);
+    });
+  });
+
+  describe("deleteMany", () => {
+    it("should delete every object from storage and the dao records in one call", async () => {
+      dao.listByIdList.mockResolvedValue([
+        { id: "1", objectName: "obj1" },
+        { id: "2", objectName: "obj2" },
+      ]);
+      dao.deleteMany.mockResolvedValue();
+
+      await BinaryAbl.deleteMany(["1", "2"]);
+
+      expect(StorageAbl.delete).toHaveBeenCalledWith("obj1");
+      expect(StorageAbl.delete).toHaveBeenCalledWith("obj2");
+      expect(dao.deleteMany).toHaveBeenCalledWith(["1", "2"]);
+    });
+
+    it("should skip items without an objectName but still delete their dao records", async () => {
+      dao.listByIdList.mockResolvedValue([{ id: "1" }]);
+      dao.deleteMany.mockResolvedValue();
+
+      await BinaryAbl.deleteMany(["1"]);
+
+      expect(StorageAbl.delete).not.toHaveBeenCalled();
+      expect(dao.deleteMany).toHaveBeenCalledWith(["1"]);
+    });
+
+    it("should still delete the dao records when a storage delete fails", async () => {
+      dao.listByIdList.mockResolvedValue([{ id: "1", objectName: "obj1" }]);
+      StorageAbl.delete.mockRejectedValue(new Error("storage error"));
+      dao.deleteMany.mockResolvedValue();
+      const consoleSpy = jest.spyOn(console, "error").mockImplementation();
+
+      await BinaryAbl.deleteMany(["1"]);
+
+      expect(dao.deleteMany).toHaveBeenCalledWith(["1"]);
+      consoleSpy.mockRestore();
+    });
+
+    it("should throw DeleteManyFailed when the dao lookup errors", async () => {
+      dao.listByIdList.mockRejectedValue(new Error("mongo down"));
+      await expect(BinaryAbl.deleteMany(["1"])).rejects.toThrow(Crud.Error.DeleteManyFailed);
     });
   });
 

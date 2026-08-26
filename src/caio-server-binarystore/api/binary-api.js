@@ -18,11 +18,18 @@ function requireId({ dtoIn }) {
   return dtoIn;
 }
 
+function requireIdList({ dtoIn }) {
+  if (!Array.isArray(dtoIn?.idList) || dtoIn.idList.length === 0) {
+    throw new Error("dtoIn.idList is required and must be a non-empty array");
+  }
+  return dtoIn;
+}
+
 /**
  * Use-case names and behavior match afkbratcice's server/api/binary-api.js so the client
  * (UiElements.CrudContext.create("binary")) works unmodified (docs/binary.md, R1).
  */
-function createApi({ list, get, create, update, delete: del } = {}) {
+function createApi({ list, get, create, update, delete: del, deleteMany } = {}) {
   return {
     "binary/list": {
       method: "get",
@@ -57,6 +64,16 @@ function createApi({ list, get, create, update, delete: del } = {}) {
       auth: toAuth(del) ?? true,
       validator: requireId,
       fn: ({ dtoIn }) => Binary.delete(dtoIn.id),
+    },
+
+    // Same auth as delete unless the app configures it separately -- it is the same
+    // operation, just batched (docs/binary.md, phase 4: CrudContext's bulk-delete button
+    // always calls this use-case).
+    "binary/deleteMany": {
+      method: "post",
+      auth: toAuth(deleteMany) ?? toAuth(del) ?? true,
+      validator: requireIdList,
+      fn: ({ dtoIn }) => Binary.deleteMany(dtoIn.idList),
     },
   };
 }

@@ -6,6 +6,7 @@ jest.mock("../../src/caio-server-binarystore/abl/binary-abl", () => ({
     create: jest.fn().mockResolvedValue({}),
     update: jest.fn().mockResolvedValue({}),
     delete: jest.fn().mockResolvedValue(),
+    deleteMany: jest.fn().mockResolvedValue(),
   },
 }));
 
@@ -17,10 +18,10 @@ describe("BinaryStore createApi", () => {
     jest.clearAllMocks();
   });
 
-  it("registers the five binary use-cases with the same names as afkbratcice", () => {
+  it("registers the five afkbratcice use-cases plus deleteMany for the bulk-delete button", () => {
     const api = createApi();
     expect(Object.keys(api)).toEqual([
-      "binary/list", "binary/get", "binary/create", "binary/update", "binary/delete",
+      "binary/list", "binary/get", "binary/create", "binary/update", "binary/delete", "binary/deleteMany",
     ]);
   });
 
@@ -30,11 +31,25 @@ describe("BinaryStore createApi", () => {
     expect(api["binary/get"].auth).toBeUndefined();
   });
 
-  it("defaults create/update/delete to requiring a login when not configured", () => {
+  it("defaults create/update/delete/deleteMany to requiring a login when not configured", () => {
     const api = createApi();
     expect(api["binary/create"].auth).toBe(true);
     expect(api["binary/update"].auth).toBe(true);
     expect(api["binary/delete"].auth).toBe(true);
+    expect(api["binary/deleteMany"].auth).toBe(true);
+  });
+
+  it("defaults deleteMany's auth to delete's when only delete is configured", () => {
+    const api = createApi({ delete: { profileList: ["admin"] } });
+    expect(api["binary/deleteMany"].auth).toEqual(["admin"]);
+  });
+
+  it("lets deleteMany's auth be configured independently of delete", () => {
+    const api = createApi({
+      delete: { profileList: ["admin"] },
+      deleteMany: { profileList: ["superadmin"] },
+    });
+    expect(api["binary/deleteMany"].auth).toEqual(["superadmin"]);
   });
 
   it("maps { profileList } to auth as a profile array", () => {
@@ -55,6 +70,13 @@ describe("BinaryStore createApi", () => {
     expect(api["binary/get"].validator({ dtoIn: { id: "abc" } })).toEqual({ id: "abc" });
   });
 
+  it("requires a non-empty idList for deleteMany", () => {
+    const api = createApi();
+    expect(() => api["binary/deleteMany"].validator({ dtoIn: {} })).toThrow();
+    expect(() => api["binary/deleteMany"].validator({ dtoIn: { idList: [] } })).toThrow();
+    expect(api["binary/deleteMany"].validator({ dtoIn: { idList: ["a", "b"] } })).toEqual({ idList: ["a", "b"] });
+  });
+
   it("delegates to Binary abl", async () => {
     const api = createApi();
     await api["binary/get"].fn({ dtoIn: { id: "abc" } });
@@ -62,6 +84,9 @@ describe("BinaryStore createApi", () => {
 
     await api["binary/delete"].fn({ dtoIn: { id: "abc" } });
     expect(Binary.delete).toHaveBeenCalledWith("abc");
+
+    await api["binary/deleteMany"].fn({ dtoIn: { idList: ["a", "b"] } });
+    expect(Binary.deleteMany).toHaveBeenCalledWith(["a", "b"]);
 
     await api["binary/list"].fn({ dtoIn: undefined });
     expect(Binary.list).toHaveBeenCalledWith({});
