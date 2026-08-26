@@ -526,10 +526,24 @@ v registry). Nová syntaxe ověřená esbuildem (`app-v1/client/node_modules/esb
 vykreslení v appce je až fáze 4 (`caio-ui` nemá vlastní test/build infrastrukturu — ověřuje se
 vždy přes `app-v1`).
 
-### Fáze 4 — ověření v `app-v1` + dokumentace
+### Fáze 4 — ověření v `app-v1` + dokumentace — **částečně hotovo 2026-08-26**
 
-Stránka s uploadem a výpisem souborů (vzor `routes/profile/binaries.js` v afkbratcice), README
-appky, kapitola v `caio-server/README.md`, a **smazat známý problém** z `caio-devkit/README.md:498`.
+Hotovo: `app-v1` přeinstalovaný na čerstvé tarbally (`caio-server`, `caio-ui`) + nové peer
+dependencies (`uu5imagingg01`, `uu5imagingg01-tools`); `server/index.js` a `health-abl.js`
+zapojené (`BinaryStore.isConfigured()`/`createApi()`, `binaryConfigured` v `getHealth`);
+`.env`/`.env.development` doplněné o `GCS_BUCKET_NAME=`; nový blok „5. Soubory (BinaryStore)" na
+home stránce (`UiElements.BinaryCrud`, s placeholderem když `binaryConfigured` je `false`).
+Ověřeno: server nastartuje, `getHealth` hlásí `binaryConfigured: false`, `binary/list` skutečně
+neexistuje jako route (padá do SPA fallbacku, ne na chybu), `vite build` klienta proběhne bez
+chyby a `uu5imagingg01`/`-tools` se objeví v import mapě i `public/libs/`, stránka se v prohlížeči
+načte bez chyby v konzoli a blok 5 ukáže „BinaryStore není nakonfigurovaný" s odkazem na
+`caio-devkit/docs/how-to-set-gcs.md`.
+
+**Čeká na reálný bucket** (stejné omezení jako dřív u Facebooku, `docs/binary.md` kap. 5, body
+5–6): skutečný upload/update/delete přes `BinaryCrud`, ověření `binary/create` 401 pro
+nepřihlášeného, ověření obrázku/PDF přes `uri`. README appky s popisem bloku 5 ještě nedoplněné.
+`caio-server/README.md` a **smazat známý problém** z `caio-devkit/README.md` jsou hotové už z
+fáze 1 (viz commit `cb9f488`/`933acf9`).
 
 ---
 
