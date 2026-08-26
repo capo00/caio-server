@@ -545,6 +545,28 @@ nepřihlášeného, ověření obrázku/PDF přes `uri`. README appky s popisem 
 `caio-server/README.md` a **smazat známý problém** z `caio-devkit/README.md` jsou hotové už z
 fáze 1 (viz commit `cb9f488`/`933acf9`).
 
+**2026-08-26, reálný test proti opravenému Mongu (uživatel upgradoval lokální MongoDB Server ze
+4.2 na 8.3, což zároveň odhalilo a umožnilo opravit pád procesu z `Dao.createIndexes()` — commit
+`830a8bc`) — dva další nálezy a opravy:**
+
+1. **`caio-ui`'s `Call.post` nikdy nestavěl absolutní URL** (`call.js`, commit `d9219a0`) —
+   relativní `uri` (bez i s vedoucím lomítkem) narazí na `fetch()` patchnutý `uu5loaderg01`
+   (kvůli vlastnímu module resolution), který na `POST` s relativní URL hodí `TypeError: Failed
+   to construct 'URL': Invalid URL` ještě než request opustí prohlížeč — `GET` request stejným
+   patchnutým fetchem projde bez problému. `CrudContext.create()` volá
+   `Call.cmdPost(entity + "/create", dtoIn)` s čistě relativním řetězcem, takže tohle nebyl jen
+   binary bug — cokoliv, co používá `CrudContext`'s create/update/delete (`BinaryCrud`,
+   `PlayerCrud` z README příkladu, cokoliv budoucího), bylo od začátku rozbité. Opraveno stejně
+   jako `get()` už dělal: `uri = new URL(uri, location.origin)` na začátku obou metod. Ověřeno
+   přímo v prohlížeči (`fetch("/binary/create", {method:"POST",...})` shodí stejnou chybu,
+   `fetch(new URL(...))` projde).
+2. Po opravě žádosti reálně dorazí na server a `binary/create` vrátí čistou chybu: *„Could not
+   load the default credentials.“* — to je přesně ADC krok z `how-to-set-gcs.md`, kapitola 7
+   (`gcloud auth application-default login`), kterou je ještě potřeba udělat lokálně. Žádný
+   osiřelý záznam v Mongu ani objekt v bucketu nevznikl (N10 rollback funguje).
+
+**Zbývá reálně ověřit:** upload/update/delete až po `gcloud auth application-default login`.
+
 ---
 
 ## 5. Jak se to ověří
