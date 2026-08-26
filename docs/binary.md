@@ -588,9 +588,16 @@ proti reálnému bucketu:**
 
 **Ověřeno end-to-end proti reálnému bucketu (`caio-propertyman-binary`):** create (skutečný
 upload, `uri` na `storage.googleapis.com`), update (přejmenování), bulk delete (`deleteMany`,
-200), jednotlivý delete — všechno funguje. Jediná zbylá kosmetická věc: po `deleteMany` se
-tabulka v UI nerefreshne sama (server-side je smazáno správně, řádek zmizí až po reloadu stránky)
-— neopravováno, mimo rozsah aktuálního požadavku.
+200), jednotlivý delete — všechno funguje.
+
+**2026-08-26, čtvrté kolo — vizuální refresh po `deleteMany` doladěn (`caio-ui`, commit
+`e97abfd`):** `useDataList`'s obecný list-level transform umí sloučit do lokálních dat jen
+výsledek JEDNÉ položky (najde ji podle id) — `deleteMany({ idList })` do toho tvaru nesedí, takže
+na rozdíl od jednotlivého `delete()` se řádek sám neodstranil, i když server (Mongo i bucket) byl
+uklizený správně. Fix: po úspěšném `handlerMap.deleteMany(...)` v `crud.jsx`'s bulk-delete
+handleru se zavolá `handlerMap.load(dtoIn)` (se stejným filtrem/dtoIn, co byl naposledy aktivní).
+Ověřeno v prohlížeči — výběr dvou řádků, hromadné smazání, tabulka se vyprázdní okamžitě, bez
+nutnosti reloadu stránky.
 
 ---
 
