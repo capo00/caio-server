@@ -565,7 +565,32 @@ fáze 1 (viz commit `cb9f488`/`933acf9`).
    (`gcloud auth application-default login`), kterou je ještě potřeba udělat lokálně. Žádný
    osiřelý záznam v Mongu ani objekt v bucketu nevznikl (N10 rollback funguje).
 
-**Zbývá reálně ověřit:** upload/update/delete až po `gcloud auth application-default login`.
+**2026-08-26, třetí kolo — po `gcloud auth application-default login` reálný upload prošel, ale
+uživatel narazil na tři další mezery a jednu chybu vzhledu, všechny opravené a ověřené end-to-end
+proti reálnému bucketu:**
+
+3. **`binary/deleteMany` neexistovalo** (`caio-server`, commit `0a65dba`) — `CrudContext`'s
+   hromadné mazání (výběr řádků → tlačítko *Delete*) vždycky volá `entity/deleteMany`, ale
+   `createApi()` registrovalo jen pětici z afkbratcice → 404. `BinaryAbl.deleteMany()` přidán se
+   stejným vzorem jako `delete()` (best-effort úklid objektů v bucketu, `dao.deleteMany` proběhne
+   vždy). Auth defaultně přebírá konfiguraci `delete`, jde nastavit i zvlášť.
+4. **Delete byl schovaný v "..." menu** (`caio-ui`, commit `1a4f2f0`) — `Crud`'s `getActionList`
+   dávala `update` jako vlastní viditelnou akci, ale `delete` byla vždycky uvnitř dots-menu.
+   Sjednoceno: obojí je teď vlastní viditelná akce (except `compact` mód, kde jsou obě v menu,
+   symetricky).
+5. **Chybí odkaz na stažení u obrázků** (`caio-ui`, stejný commit) — `file` sloupec v
+   `BinaryCrud` teď vždycky ukáže odkaz *Stáhnout* vedle náhledu (dřív jen u ne-obrázků).
+6. **Ikony se nevykreslovaly** (`caio-devkit`, commit `0f688a0`) — `uu5g05.js` má natvrdo
+   zadrátovaný požadavek na `uu_gds_svgg01-icons.min.css` bez ohledu na to, jestli appka běží v
+   readable (dev) nebo minified (prod) módu. `copyTree`'s prořezávání min/non-min variant tenhle
+   soubor v dev módu zahazovalo → žádná ikona (`uugds-*`) se nikde nezobrazila, bez chyby v
+   konzoli. Zafixováno jako výjimka, co se kopíruje vždy.
+
+**Ověřeno end-to-end proti reálnému bucketu (`caio-propertyman-binary`):** create (skutečný
+upload, `uri` na `storage.googleapis.com`), update (přejmenování), bulk delete (`deleteMany`,
+200), jednotlivý delete — všechno funguje. Jediná zbylá kosmetická věc: po `deleteMany` se
+tabulka v UI nerefreshne sama (server-side je smazáno správně, řádek zmizí až po reloadu stránky)
+— neopravováno, mimo rozsah aktuálního požadavku.
 
 ---
 
