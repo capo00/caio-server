@@ -1,8 +1,11 @@
 # Úložiště souborů (`BinaryStore`) — plán
 
-Stav: **schváleno uživatelem 2026-08-26** — R1–R7 a nálezy N1–N13 jsou zafixované (viz kap. 2 a 3
-níž), začíná se implementace podle fáze 1 (kap. 4). Google Disk se z modulu odstraňuje úplně,
-nezůstává jako fallback.
+Stav: **hotovo a ověřeno end-to-end 2026-08-26** — fáze 1–4 (kap. 4) implementované, fáze 2 (GCP
+setup) uživatel provedl podle `caio-devkit/docs/how-to-set-gcs.md`, reálný upload/update/delete/
+deleteMany otestované proti bucketu `caio-propertyman-binary`. Google Disk je z modulu úplně
+pryč, žádný fallback. Cestou nalezeno a opraveno 6 reálných bugů (zápisky u fáze 4, kap. 4) —
+nejvýraznější dva mimo binarystore samotné: `caio-server-dao`'s Mongo connect race/crash a
+`caio-ui`'s `Call.post` relativní URL (obojí ovlivňovalo celý stack, ne jen binary).
 
 Zadání (úkol #4 z 2026-08-24): *„server napojit na úložiště souborů, vzor v `afkbratcice`“*.
 Vzor je v `git/afkbratcice/server/libs/oc_binarystore` + `server/api/binary-api.js` a na klientu
@@ -526,7 +529,7 @@ v registry). Nová syntaxe ověřená esbuildem (`app-v1/client/node_modules/esb
 vykreslení v appce je až fáze 4 (`caio-ui` nemá vlastní test/build infrastrukturu — ověřuje se
 vždy přes `app-v1`).
 
-### Fáze 4 — ověření v `app-v1` + dokumentace — **částečně hotovo 2026-08-26**
+### Fáze 4 — ověření v `app-v1` + dokumentace — **hotovo 2026-08-26**
 
 Hotovo: `app-v1` přeinstalovaný na čerstvé tarbally (`caio-server`, `caio-ui`) + nové peer
 dependencies (`uu5imagingg01`, `uu5imagingg01-tools`); `server/index.js` a `health-abl.js`
@@ -539,11 +542,11 @@ chyby a `uu5imagingg01`/`-tools` se objeví v import mapě i `public/libs/`, str
 načte bez chyby v konzoli a blok 5 ukáže „BinaryStore není nakonfigurovaný" s odkazem na
 `caio-devkit/docs/how-to-set-gcs.md`.
 
-**Čeká na reálný bucket** (stejné omezení jako dřív u Facebooku, `docs/binary.md` kap. 5, body
-5–6): skutečný upload/update/delete přes `BinaryCrud`, ověření `binary/create` 401 pro
-nepřihlášeného, ověření obrázku/PDF přes `uri`. README appky s popisem bloku 5 ještě nedoplněné.
-`caio-server/README.md` a **smazat známý problém** z `caio-devkit/README.md` jsou hotové už z
-fáze 1 (viz commit `cb9f488`/`933acf9`).
+Vše z týhle sekce, co ještě čekalo na reálný bucket, je od dalších kol níž hotové a ověřené.
+README appky (`app-v1/README.md`) doplněné o blok 5, ENV proměnné a odkaz na
+`how-to-set-gcs.md`. `caio-server/README.md` a **smazat známý problém** z `caio-devkit/README.md`
+jsou hotové už z fáze 1 (viz commit `cb9f488`/`933acf9`), `caio-devkit/README.md` navíc doplněné
+o opravu Mongo pádu a `caio-server/README.md`/`caio-ui/README.md` o `deleteMany`.
 
 **2026-08-26, reálný test proti opravenému Mongu (uživatel upgradoval lokální MongoDB Server ze
 4.2 na 8.3, což zároveň odhalilo a umožnilo opravit pád procesu z `Dao.createIndexes()` — commit

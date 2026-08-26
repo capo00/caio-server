@@ -29,7 +29,7 @@ Each use case in the `api` object can also define:
 
 | Param       | Desc                                                                                                   |
 |-------------|--------------------------------------------------------------------------------------------------------|
-| `auth`      | Set `true` to require authentication, or pass an array of profiles (e.g. `["Admin"]`) for authorization. |
+| `auth`      | `true` requires authentication; an array of profiles (e.g. `["Admin"]`) requires authentication and at least one matching profile; an async function `({ dtoIn, identity, req }) => boolean` requires authentication and runs your own authorization logic (dtoIn-aware, unlike the profile-array check) -- see `BinaryStore.createApi()`'s `authorize` option for an example. |
 | `validator` | Validation function `(obj, key) => validatedObj`. Validates dtoIn before the handler is called.         |
 
 ```
@@ -354,15 +354,17 @@ Returns `true` when `GCS_BUCKET_NAME` is set. Use it to decide whether to spread
 `BinaryStore.createApi()` into your `App.init({ api })`, and in your own `getHealth` alongside
 `mongoConfigured`/`googleAuthConfigured` (see `caio-server-app`'s health example convention).
 
-#### BinaryStore.createApi({ list, get, create, update, delete })
+#### BinaryStore.createApi({ list, get, create, update, delete, deleteMany })
 
-Registers the five `binary/*` use-cases (same names and shape as the client's
-`UiElements.CrudContext.create("binary")` expects). Each key is optional and configures auth for
-that one use-case:
+Registers six `binary/*` use-cases -- the five the client's
+`UiElements.CrudContext.create("binary")` expects, plus `deleteMany` for its bulk-delete button.
+Each key is optional and configures auth for that one use-case:
 
 - omitted -- no auth (default for `list`/`get`),
 - `{ profileList: [...] }` -- requires login and at least one of the listed profiles (default
-  `true`, login only, for `create`/`update`/`delete` when omitted),
+  `true`, login only, for `create`/`update`/`delete` when omitted; `deleteMany` falls back to
+  whatever `delete` resolves to when not configured separately, since it's the same operation
+  just batched),
 - `{ authorize: async ({ dtoIn, identity, req }) => boolean }` -- your own authorization logic.
 
 ```js
@@ -375,6 +377,7 @@ App.init({
       create: { profileList: ["operatives"] },
       update: { profileList: ["operatives"] },
       delete: { profileList: ["admin"] },
+      // deleteMany not set -> inherits delete's ["admin"]
     }) : {}),
   },
 });
@@ -390,6 +393,7 @@ used internally by `createApi()`, but available directly too.
 | `create({ file, name, ...data })` | Uploads file to Cloud Storage under a new object name and stores metadata in MongoDB. |
 | `update({ id, file, name, ...data })` | Uploads new content under a new object (never overwrites in place), switches metadata to it, then deletes the old object. Metadata-only updates skip storage entirely. |
 | `delete(id)`                | Deletes the object from Cloud Storage (best-effort) and always removes the metadata. |
+| `deleteMany(idList)`        | Same as `delete`, batched: best-effort object cleanup per item, metadata removal always runs regardless of storage failures. |
 | `list({ pageInfo, idList })`| Lists binary metadata (inherited from `Crud`).                              |
 | `get(id)`                   | Gets binary metadata by id (inherited from `Crud`).                         |
 | `parseFormDataRequest(req, res)` | Parses multipart/form-data request. Used internally by the command handler; throws a 413 when the configured size/count limit is exceeded. |
