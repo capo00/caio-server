@@ -23,6 +23,7 @@ jest.mock("../../src/caio-server-binarystore/abl/storage-abl", () => ({
   default: {
     create: jest.fn(),
     delete: jest.fn(),
+    setName: jest.fn(),
     getUri: jest.fn((objectName) => `https://storage.googleapis.com/test-bucket/${objectName}`),
   },
 }));
@@ -70,12 +71,35 @@ describe("BinaryAbl", () => {
 
       const result = await BinaryAbl.create({ file, name: "custom.jpg" });
 
-      expect(StorageAbl.create).toHaveBeenCalledWith(file);
+      expect(StorageAbl.create).toHaveBeenCalledWith(file, "custom.jpg");
       expect(dao.create).toHaveBeenCalledWith(
         expect.objectContaining({ name: "custom.jpg", objectName: "obj1", size: 1024 })
       );
       expect(result).toHaveProperty("uri");
       expect(result).not.toHaveProperty("objectName");
+    });
+
+    it("should append the missing extension to a name given without one", async () => {
+      const file = { size: 1024, mimetype: "image/jpeg", originalname: "DSC_0001.jpeg" };
+      StorageAbl.create.mockResolvedValue({ objectName: "obj1.jpg", uri: "uri1" });
+      dao.create.mockResolvedValue({ _id: "db1", name: "Dovolená.jpg" });
+
+      await BinaryAbl.create({ file, name: "Dovolená" });
+
+      expect(StorageAbl.create).toHaveBeenCalledWith(file, "Dovolená.jpg");
+      expect(dao.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Dovolená.jpg" }));
+    });
+
+    it("should take the extension from the mime type when the uploaded name disagrees", async () => {
+      // What BinaryCrud#onPreSubmit produces: the bytes were re-encoded to webp client-side and
+      // the file name may still carry the extension of whatever the user originally picked.
+      const file = { size: 1024, mimetype: "image/webp", originalname: "photo.jpg" };
+      StorageAbl.create.mockResolvedValue({ objectName: "obj1.webp", uri: "uri1" });
+      dao.create.mockResolvedValue({ _id: "db1", name: "photo.jpg.webp" });
+
+      await BinaryAbl.create({ file });
+
+      expect(StorageAbl.create).toHaveBeenCalledWith(file, "photo.jpg.webp");
     });
 
     it("should use the client's original filename when name not provided", async () => {
@@ -127,7 +151,7 @@ describe("BinaryAbl", () => {
 
       const result = await BinaryAbl.update({ id: "db1", file, name: "new.png" });
 
-      expect(StorageAbl.create).toHaveBeenCalledWith(file);
+      expect(StorageAbl.create).toHaveBeenCalledWith(file, "new.png");
       expect(dao.update).toHaveBeenCalledWith(
         expect.objectContaining({ objectName: "obj-new", name: "new.png", size: 2048 })
       );
@@ -135,14 +159,46 @@ describe("BinaryAbl", () => {
       expect(result).not.toHaveProperty("objectName");
     });
 
-    it("should update metadata only without touching storage when no file is given", async () => {
+    it("should move the extension along with replaced content when no new name is given", async () => {
+      const file = { size: 2048, mimetype: "image/png", originalname: "scan.png" };
       dao.get.mockResolvedValue({ id: "db1", objectName: "obj-old", name: "old.jpg" });
+      StorageAbl.create.mockResolvedValue({ objectName: "obj-new.png", uri: "uri-new" });
+      dao.update.mockResolvedValue({ _id: "db1", name: "old.jpg.png" });
+
+      await BinaryAbl.update({ id: "db1", file });
+
+      expect(StorageAbl.create).toHaveBeenCalledWith(file, "old.jpg.png");
+    });
+
+    it("should rename the storage object without re-uploading when no file is given", async () => {
+      dao.get.mockResolvedValue({ id: "db1", objectName: "obj-old", name: "old.jpg", mimeType: "image/jpeg" });
       dao.update.mockResolvedValue({ _id: "db1", name: "renamed.jpg", objectName: "obj-old" });
 
       await BinaryAbl.update({ id: "db1", name: "renamed.jpg" });
 
       expect(StorageAbl.create).not.toHaveBeenCalled();
       expect(StorageAbl.delete).not.toHaveBeenCalled();
+      expect(StorageAbl.setName).toHaveBeenCalledWith("obj-old", "renamed.jpg");
+    });
+
+    it("should keep the update when the storage rename fails", async () => {
+      dao.get.mockResolvedValue({ id: "db1", objectName: "obj-old", name: "old.jpg", mimeType: "image/jpeg" });
+      dao.update.mockResolvedValue({ _id: "db1", name: "renamed.jpg", objectName: "obj-old" });
+      StorageAbl.setName.mockRejectedValue(new Error("storage error"));
+      const consoleSpy = jest.spyOn(console, "error").mockImplementation();
+
+      await expect(BinaryAbl.update({ id: "db1", name: "renamed.jpg" })).resolves.toHaveProperty("name", "renamed.jpg");
+      consoleSpy.mockRestore();
+    });
+
+    it("should not touch storage when neither the file nor the name changes", async () => {
+      dao.get.mockResolvedValue({ id: "db1", objectName: "obj-old", name: "old.jpg" });
+      dao.update.mockResolvedValue({ _id: "db1", name: "old.jpg", objectName: "obj-old" });
+
+      await BinaryAbl.update({ id: "db1", someOtherField: "x" });
+
+      expect(StorageAbl.create).not.toHaveBeenCalled();
+      expect(StorageAbl.setName).not.toHaveBeenCalled();
     });
 
     it("should roll back the new object and keep the old one when dao.update fails", async () => {

@@ -348,6 +348,13 @@ Binary file storage module using Google Cloud Storage for file content and Mongo
 It is only wired up when the app is configured for it (`BinaryStore.isConfigured()`) -- there is
 no separate `init()` call.
 
+**File names.** Every record has a `name`: whatever `binary/create` was given, or the uploaded
+file's own name. It is stored with the extension that matches the uploaded content -- taken from
+the mime type first, since the client may re-encode an image and leave the old extension on the
+name -- and it is written onto the storage object as `Content-Disposition`, so the browser saves
+the file under that name even though the public uri is a bare UUID on another host. Renaming a
+record through `binary/update` updates that header too. See `docs/binary.md`, R8.
+
 #### BinaryStore.isConfigured()
 
 Returns `true` when `GCS_BUCKET_NAME` is set. Use it to decide whether to spread
@@ -437,7 +444,7 @@ await BinaryStore.Binary.delete(binary.id);
 | GOOGLE_CALLBACK_UC           | Use case for callback for Google.<br/>Default: google/callback                                                                 |
 | JWT_SECRET                   | Secret key for App token.<br/>Default: GOOGLE_CLIENT_SECRET                                                                    |
 | JWT_LIFETIME                 | Time to live for the token.<br/>Default: 1d                                                                                    |
-| GCS_BUCKET_NAME              | Google Cloud Storage bucket name for binary file uploads. **Optional**: without it, `BinaryStore.isConfigured()` is `false` and the app should not spread `BinaryStore.createApi()` into `App.init({ api })`. |
+| GCS_BUCKET_NAME              | Google Cloud Storage bucket name for binary file uploads. **Optional**: without it, `BinaryStore.isConfigured()` is `false` and the app should not spread `BinaryStore.createApi()` into `App.init({ api })`. Use a **different bucket** in `.env` and `.env.development` so local development cannot reach production files -- see `caio-devkit/docs/how-to-set-gcs.md`. |
 | GOOGLE_APPLICATION_CREDENTIALS | Standard GCP env var, read by `@google-cloud/storage` itself -- path to a service-account key file. Optional override; the default is Application Default Credentials (`gcloud auth application-default login` locally, the instance service account on App Engine). No `keyFilename` is ever hardcoded in code. |
 | BINARY_MAX_FILE_SIZE_MB      | Max upload size per file, in MB.<br/>Default: 25                                                                               |
 | BINARY_MAX_FILES             | Max number of files per upload request.<br/>Default: 20                                                                        |

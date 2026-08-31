@@ -461,6 +461,36 @@ pro `caio_propertyman` galerii. Pozor: resize obrázků před uploadem použív�
 **Rozhodnuto:** `BinaryCrud` patří do `caio-ui` (ne app-specifické) — appky si nemají psát admin
 tabulku souborů znovu pokaždé.
 
+### R8 — název a přípona staženého souboru (doplněno 2026-08-31)
+
+Objekt v bucketu je `crypto.randomUUID()` bez přípony a `uri` míří přímo na
+`storage.googleapis.com`. Původní název souboru se tak do prohlížeče nedostal vůbec: kliknutí na
+odkaz v `BinaryCrud` uložilo soubor pod holým UUID a bez přípony. Atribut `download` to
+nespraví — podle fetch/HTML specifikace je to **same-origin-only** nápověda a cross-origin GCS ho
+ignoruje (poznámka byla přímo v `binary-crud.jsx`).
+
+**Rozhodnuto:** název nese **`Content-Disposition` v metadatech objektu**, ne jméno objektu.
+Konkrétně:
+
+- `helpers/file-name.js` — `resolveName(name, file)` složí uložený název (zadaný název, jinak
+  `file.originalname`) a dotlačí k němu správnou příponu; `buildContentDisposition(name)` z něj
+  udělá hlavičku podle RFC 5987/6266 (`filename` v ASCII jako záloha + `filename*=UTF-8''…`,
+  bez čehož by české názvy dorazily rozsypané).
+- `StorageAbl.create(file, name)` hlavičku nastaví při uploadu, `StorageAbl.setName()` ji opraví
+  při pouhém přejmenování — jinak by tabulka ukazovala nový název a prohlížeč stahoval starý.
+- Přípona se určuje **z mime typu**, a teprve když ten není v mapě, z názvu nahrávaného souboru.
+  Klient obrázky před odesláním překóduje do webp (`BinaryCrud#onPreSubmit`), takže název ještě
+  může končit na `.jpg`, zatímco obsah je webp. Mapa drží u každého typu i alternativní zápisy
+  (`.jpg`/`.jpeg`), aby se z `foto.jpeg` nestalo `foto.jpeg.jpg`.
+- Nesedící přípona se **přidá, ne nahradí** — nahrazování by z `verze1.2` udělalo `verze1.jpg`.
+- `objectName` dostane příponu taky. Na stahování to vliv nemá (to řeší hlavička), ale bucket
+  v GCS konzoli je pak čitelný, ne stěna UUID.
+
+**Cena:** disposition je `attachment`, takže odkaz vždy stahuje. Náhledy v tabulce to nerozbíjí —
+prohlížeče `Content-Disposition` u podřízených zdrojů (`<img>`) ignorují, uplatní se jen při
+navigaci. Kdyby někdy bylo potřeba PDF otevírat v prohlížeči místo stahovat, je to změna jedné
+hodnoty v `buildContentDisposition`.
+
 ---
 
 ## 4. Fáze
@@ -474,12 +504,12 @@ Kroky 1–10 implementované, `npm test` v `caio-server` zelený (211/211, včet
 credentials — kapitola 5, body 5–6 (stejné omezení jako u úkolu #3/Facebook).
 
 **Nález navíc, mimo rozsah plánu, jen zaznamenáno:** `caio-server-auth/api/identity-api.js`
-(nikdy nikde nepoužitý use-case modul) je nefunkční — `import UuAppDataTypes from
+(nikdy nikde nepoužitý use-case modul) byl nefunkční — `import UuAppDataTypes from
 "uu_appdatatypesg02"` je default import z balíčku bez default exportu (SyntaxError při importu) a
 `UuAppDataTypes.exact`/`.arrayOf` navíc v balíčku vůbec neexistují. Proto `binary-api.js` validátory
-nepoužívají `UuAppDataTypes` vůbec (vlastní `requireId` funkce). `identity-api.js` se nikde
-nepoužívá (app-v1 ho neimportuje), takže se to zatím nikde neprojevilo — oprava je mimo rozsah
-tohohle úkolu.
+nepoužívají `UuAppDataTypes` vůbec (vlastní `requireId` funkce). `identity-api.js` se tehdy nikde
+nepoužíval (app-v1 ho neimportoval) — oprava byla mimo rozsah tohohle úkolu. **Opraveno a doplněno
+o admin use case 2026-08-26, viz `docs/auth.md` kapitola 8.**
 
 Detail kroků, jak byly zadané:
 

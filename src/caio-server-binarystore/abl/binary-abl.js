@@ -3,6 +3,7 @@ import dao from "../dao/binary-dao.js";
 import { Crud, Error as CoreError } from "../../caio-server-core/index.js";
 import StorageAbl from "./storage-abl.js";
 import Config from "../config/config.js";
+import { resolveName } from "../helpers/file-name.js";
 
 class PayloadTooLargeError extends CoreError {
   constructor(msg, opts) {
@@ -24,12 +25,16 @@ class BinaryAbl extends Crud {
   async create(data) {
     const { file, name, ...restParams } = data;
 
+    // Resolved up front so the very same string is what the record stores and what the storage
+    // object advertises as its download name -- the two must not be able to drift apart.
+    const resolvedName = resolveName(name, file);
+
     let storageFile;
     try {
-      storageFile = await StorageAbl.create(file);
+      storageFile = await StorageAbl.create(file, resolvedName);
 
       const binaryData = await this.dao.create({
-        name: name ?? file.originalname,
+        name: resolvedName,
         objectName: storageFile.objectName,
         uri: storageFile.uri,
         size: file.size,
@@ -63,14 +68,18 @@ class BinaryAbl extends Crud {
       // previous content (docs/binary.md, N10 / R4).
       let newStorageFile;
       if (file) {
-        newStorageFile = await StorageAbl.create(file);
+        // A new name may arrive with the new content, or the old one may have to be re-derived:
+        // replacing a .jpg with a .png has to move the extension along with the bytes.
+        updatedParams.name = resolveName(name ?? binary.name, file);
+        newStorageFile = await StorageAbl.create(file, updatedParams.name);
         updatedParams.objectName = newStorageFile.objectName;
         updatedParams.uri = newStorageFile.uri;
         updatedParams.size = file.size;
         updatedParams.mimeType = file.mimetype;
+      } else if (name) {
+        // Rename with the content untouched: the extension comes from what is already stored.
+        updatedParams.name = resolveName(name, { originalname: binary.name, mimetype: binary.mimeType });
       }
-
-      if (name) updatedParams.name = name;
 
       let binaryData;
       try {
@@ -91,6 +100,15 @@ class BinaryAbl extends Crud {
           await StorageAbl.delete(binary.objectName);
         } catch (e) {
           console.error("Old binary object cannot be deleted from storage after update", binary.objectName, e);
+        }
+      } else if (updatedParams.name && binary.objectName) {
+        // Rename only. Done after the dao write, like the deletions above: a failure here leaves
+        // the file downloading under its previous name, which is worth logging but not worth
+        // failing an update the database has already accepted.
+        try {
+          await StorageAbl.setName(binary.objectName, updatedParams.name);
+        } catch (e) {
+          console.error("Binary object name cannot be updated in storage", binary.objectName, e);
         }
       }
 
