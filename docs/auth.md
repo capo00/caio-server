@@ -593,6 +593,7 @@ klikací návod — logika kroků drží.
    nereviduje. Pro veřejný provoz je potřeba appku přepnout do *Live*, což chce vyplněnou URL
    zásad ochrany osobních údajů a u citlivějších oprávnění i App Review. Pro `email` a
    `public_profile` review potřeba není.
+
 8. **Kontrola.** Po vyplnění env restartuj server a v logu ověř, že se strategie zaregistrovala
    (bez credentials se podle N6 registrovat nemá). Pak `GET /auth/facebook` musí přesměrovat na
    `facebook.com`, ne skončit chybou.
@@ -601,3 +602,35 @@ Zdroje: [Facebook Login — Security](https://developers.facebook.com/docs/faceb
 [Manually Build a Login Flow](https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow/),
 [Strict URI Matching](https://developers.facebook.com/blog/post/2017/12/18/strict-uri-matching/),
 [Requiring HTTPS for Facebook Login](https://developers.facebook.com/blog/post/2018/06/08/enforce-https-facebook-login/).
+
+---
+
+## 8. Admin: `identity/adminList` a `identity/update` (2026-08-26)
+
+`api/identity-api.js` existoval, ale nikdy nefungoval a žádná appka ho neimportovala (viz
+`caio-devkit/README.md`, „Známé problémy"): `UuAppDataTypes.exact(...)` neexistuje, balíček
+nemá default export. Opraveno stejně jako `binary-api.js` — obyčejné validátorové funkce
+místo `uu_appdatatypesg02`.
+
+Zároveň přidány dvě nové, admin-only use case pro potřeby `caio_propertyman`'s home page
+(tabulka všech identit s úpravou jako syrový JSON — jediné místo, kde jde nastavit
+`profileList`, viz kapitola 5.1):
+
+- **`identity/adminList`** (`auth: ["authorities"]`) — čte přímo `identityDao.list()`, ne
+  `Identity.list()`. `Identity.list()`/`.get()` schválně vrací jen `_getPublicData()`
+  (jméno, foto) — bezpečné pro vzájemné vyhledávání uživatelů, ale bez `id`, `email` nebo
+  `profileList` k ničemu pro admin tabulku. `adminList` vrací celý dokument kromě
+  bcrypt hashe hesla.
+- **`identity/update`** (`auth: ["authorities"]`) — libovolný update polí přes `identityDao.update()`.
+  `password` se z `dtoIn` vždy zahodí — heslo smí vzniknout jen přes `/auth/register` nebo
+  reset, nikdy jako plaintext vložený do admin textového pole.
+
+Profil je **`authorities`, napevno a bez konfigurace** (2026-09-06). Práce s identitami
+a přidělování rolí je jediné oprávnění, které vypadá stejně ve všech projektech na tomhle
+stacku, takže nemá smysl to nechávat na appce — a `owner`, který tu stál původně, si
+nedefinuje žádná appka.
+
+`Authentication.createApi()` (`caio-server-auth/index.js`) appce tenhle pár endpointů zpřístupní
+stejnou konvencí jako `BinaryStore.createApi()` — appka si ho sama přidá do `api` mapy.
+Referenční použití: `app-v1/server/index.js` + `client/src/routes/home.jsx` (blok
+„6. Identity").

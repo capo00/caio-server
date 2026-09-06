@@ -13,6 +13,7 @@
 | `api`        | Each api is defined as `useCase` with an object with `method` as String and `fn` as function, which returns object as dtoOut of the api. |
 | `publicPath` | Path is used for static files like assets and for index.html.                                                                            |
 | `authList`   | Array of additional authentication configurations for multi-tenant auth. Each item is passed to `Authentication.init(app, cfg)`.          |
+| `middlewareList` | Express middleware to mount **after** the framework's own and **before** the use-cases and the SPA fallback. That position is the point: legacy URL redirects have to answer paths the fallback would otherwise swallow, and an app cannot register anything there itself -- `init()` owns the order. |
 
 | fn params    | Desc                                            |
 |--------------|-------------------------------------------------|
@@ -61,6 +62,14 @@ const app = App.init({
 ```
 
 A built-in `sys/health` endpoint is always registered and returns `{ version }` from `package.json`.
+
+**Every use case sees who is asking.** `Authentication.resolveIdentity` runs in front of all
+of them, including public ones: it fills `req.identity` when there is a valid cookie and never
+rejects. So a public endpoint can still answer differently for a signed-in caller -- a match
+list that is public but shows the departure time only to members, or a binary collection whose
+read is open and write is not. `auth: true` and a profile array additionally require a login;
+`auth: <function>` does **not** -- it receives `identity` (possibly `null`) and decides for
+itself, which is the only way to express "public to read, restricted to write".
 
 ---
 
@@ -263,10 +272,19 @@ Registered routes (relative to `prefixPath`):
 | `/google/callback`          | GET    | Google OAuth callback. Sets JWT cookie and closes popup.          |
 | `/facebook`                 | GET    | Initiates Facebook OAuth flow.                                    |
 | `/facebook/callback`        | GET    | Facebook OAuth callback. Same as Google.                          |
+| `/password/reset-request`   | POST   | `{ email }` -- mails a one-time reset link. **Always answers 200**, whatever happens: anything else turns it into a way of asking which e-mails are registered. Failures are logged, not returned. |
+| `/password/reset`           | POST   | `{ token, password }` -- verifies the token, replaces the hash, invalidates the token. Deliberately sets **no cookie**: reading a mailbox is not the same as sitting at a trusted device. |
 
 Errors come back as `{ error: { code, message } }` with codes prefixed `caio-server-auth/`:
 `invalidEmail`, `passwordTooShort` / `passwordTooLong` / `passwordTooSimple`, `identityExists`,
-`invalidCredentials`, `invalidJson`, `bodyTooLarge`.
+`invalidCredentials`, `invalidJson`, `bodyTooLarge`, `invalidToken`, `tokenExpired`,
+`passwordResetDisabled`.
+
+**Password reset** is stored as a sha-256 hash of a 32-byte random token with a 30 minute
+expiry, so a leaked database hands over no working links. It is only offered when mail is
+configured (`SMTP_HOST`, `MAIL_FROM`, `APP_URL`) and only for accounts that actually have a
+password -- sending a reset link to a Google-only account would add a password nobody asked
+for. The link points at `/login.html?reset=<token>`, which `caio-ui`'s login page handles.
 
 **One identity per e-mail.** Google, Facebook and a password all live on the same document
 (`googleId`, `facebookId`, `password`), and `getBasicData()` returns an `authMethodList` derived
@@ -336,9 +354,14 @@ Pre-built identity use cases are available in `caio-server-auth/api/identity-api
 
 | Use case          | Method | Auth | Desc                                         |
 |-------------------|--------|------|----------------------------------------------|
-| `identity/search` | GET    | yes  | Searches identities by query string.         |
-| `identity/list`   | GET    | yes  | Lists identities by `idList` or `identityList`. |
-| `identity/get`    | GET    | no   | Gets identity by `id` or `identity` code.    |
+| `identity/search`    | GET    | yes  | Searches identities by query string.         |
+| `identity/list`      | GET    | yes  | Lists identities by `idList` or `identityList`. |
+| `identity/get`       | GET    | no   | Gets identity by `id` or `identity` code.    |
+| `identity/adminList` | GET    | `authorities` | Full records (minus the password hash and reset token). |
+| `identity/update`    | POST   | `authorities` | Raw field update, typically `profileList`. |
+
+Editing identities and handing out roles is the one privilege that looks the same in every
+project on this stack, so the profile is **fixed at `authorities`**, not configurable.
 
 ---
 
@@ -361,18 +384,14 @@ Returns `true` when `GCS_BUCKET_NAME` is set. Use it to decide whether to spread
 `BinaryStore.createApi()` into your `App.init({ api })`, and in your own `getHealth` alongside
 `mongoConfigured`/`googleAuthConfigured` (see `caio-server-app`'s health example convention).
 
-#### BinaryStore.createApi({ list, get, create, update, delete, deleteMany })
+#### BinaryStore.createApi({ collectionMap })
 
 Registers six `binary/*` use-cases -- the five the client's
 `UiElements.CrudContext.create("binary")` expects, plus `deleteMany` for its bulk-delete button.
-Each key is optional and configures auth for that one use-case:
 
-- omitted -- no auth (default for `list`/`get`),
-- `{ profileList: [...] }` -- requires login and at least one of the listed profiles (default
-  `true`, login only, for `create`/`update`/`delete` when omitted; `deleteMany` falls back to
-  whatever `delete` resolves to when not configured separately, since it's the same operation
-  just batched),
-- `{ authorize: async ({ dtoIn, identity, req }) => boolean }` -- your own authorization logic.
+Files are grouped into named **collections** and **each collection carries its own
+authorization**. One rule for all binaries is not enough: the person who uploads gallery
+photos should not be able to replace the club logo.
 
 ```js
 import { App, BinaryStore } from "caio-server";
@@ -381,14 +400,39 @@ App.init({
   api: {
     ...healthApi,
     ...(BinaryStore.isConfigured() ? BinaryStore.createApi({
-      create: { profileList: ["operatives"] },
-      update: { profileList: ["operatives"] },
-      delete: { profileList: ["admin"] },
-      // deleteMany not set -> inherits delete's ["admin"]
+      collectionMap: {
+        sys:     { write: { profileList: ["operatives"] } },
+        gallery: { write: { profileList: ["galleryEditor", "operatives"] } },
+        file:    { read: true, write: { identityList: ["1-1-1"] } },
+      },
     }) : {}),
   },
 });
 ```
+
+Per collection: `read` (covers `list`/`get`), `write` (covers `create`/`update`/`delete`/
+`deleteMany`), or any single operation name to override one of them. Each value is:
+
+- omitted -- no auth,
+- `true` -- requires a login,
+- `{ profileList: [...] }` -- login and at least one of the listed profiles,
+- `{ identityList: [...] }` -- named identities, regardless of role,
+- `{ authorize: async ({ dtoIn, identity, req, binary }) => boolean }` -- your own logic;
+  `binary` is the stored record on operations over an existing file.
+
+**Where the collection comes from.** `create` and `list` take it from `dtoIn.collection`
+(required; an unknown one is a 400 `caio-server-binarystore/unknownCollection`). `get`,
+`update`, `delete` and `deleteMany` take it **from the stored record** -- never from `dtoIn`,
+or a caller could claim a collection they are allowed to write. That costs one read before
+the decision. `deleteMany` requires every file in the batch to pass: deleting "the ones you
+may" would silently do something other than what was asked.
+
+`binary/list` filters by `collection` and `refId`, both fields the store owns. App-specific
+filtering stays in the app's own use-case.
+
+> Collections protect the API, not the bytes: objects are public at their `uri`, so anyone
+> with the URL can fetch the file regardless of collection. A genuinely private collection
+> would need private objects and signed URLs, which this module does not do.
 
 #### BinaryStore.Binary
 
@@ -448,3 +492,6 @@ await BinaryStore.Binary.delete(binary.id);
 | GOOGLE_APPLICATION_CREDENTIALS | Standard GCP env var, read by `@google-cloud/storage` itself -- path to a service-account key file. Optional override; the default is Application Default Credentials (`gcloud auth application-default login` locally, the instance service account on App Engine). No `keyFilename` is ever hardcoded in code. |
 | BINARY_MAX_FILE_SIZE_MB      | Max upload size per file, in MB.<br/>Default: 25                                                                               |
 | BINARY_MAX_FILES             | Max number of files per upload request.<br/>Default: 20                                                                        |
+| SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD | Outgoing mail. **Optional**: without them password reset is not offered -- `/auth/config` reports `passwordResetEnabled: false` and the login page hides the link. Port defaults to 587; 465 switches to implicit TLS. Credentials may be omitted for a local relay. |
+| MAIL_FROM                    | Envelope sender for outgoing mail. Required together with `SMTP_HOST` for password reset.                                       |
+| APP_URL                      | Public address of the app. Used to build the password-reset link, so it counts as part of the mail configuration.               |
