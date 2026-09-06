@@ -22,8 +22,29 @@ class BinaryAbl extends Crud {
     super("sys/binary", dao);
   }
 
+  /**
+   * Lists one collection. `collection` and `refId` are BinaryStore's own fields, so
+   * filtering by them is part of the contract; anything app-specific stays in the app's
+   * own use-case over the same collection.
+   */
+  async list({ pageInfo, idList, collection, refId } = {}) {
+    if (collection) {
+      return (await this.dao.listByCollection({ collection, refId }, pageInfo)).map((item) => this._getData(item));
+    }
+    return super.list({ pageInfo, idList });
+  }
+
   async create(data) {
     const { file, name, ...restParams } = data;
+
+    // Every file belongs to a collection: that is what its authorization is decided by
+    // (api/binary-api.js). A record without one could never be authorized again.
+    if (!restParams.collection) {
+      throw new CoreError("dtoIn.collection is required", {
+        status: 400,
+        code: "caio-server-binarystore/collectionRequired",
+      });
+    }
 
     // Resolved up front so the very same string is what the record stores and what the storage
     // object advertises as its download name -- the two must not be able to drift apart.

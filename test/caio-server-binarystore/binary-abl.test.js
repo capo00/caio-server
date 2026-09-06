@@ -69,7 +69,7 @@ describe("BinaryAbl", () => {
       StorageAbl.create.mockResolvedValue({ objectName: "obj1", uri: "https://storage.googleapis.com/test-bucket/obj1" });
       dao.create.mockResolvedValue({ _id: "db1", name: "custom.jpg", objectName: "obj1", uri: "https://storage.googleapis.com/test-bucket/obj1", size: 1024, mimeType: "image/jpeg" });
 
-      const result = await BinaryAbl.create({ file, name: "custom.jpg" });
+      const result = await BinaryAbl.create({ collection: "sys", file, name: "custom.jpg" });
 
       expect(StorageAbl.create).toHaveBeenCalledWith(file, "custom.jpg");
       expect(dao.create).toHaveBeenCalledWith(
@@ -84,7 +84,7 @@ describe("BinaryAbl", () => {
       StorageAbl.create.mockResolvedValue({ objectName: "obj1.jpg", uri: "uri1" });
       dao.create.mockResolvedValue({ _id: "db1", name: "Dovolená.jpg" });
 
-      await BinaryAbl.create({ file, name: "Dovolená" });
+      await BinaryAbl.create({ collection: "sys", file, name: "Dovolená" });
 
       expect(StorageAbl.create).toHaveBeenCalledWith(file, "Dovolená.jpg");
       expect(dao.create).toHaveBeenCalledWith(expect.objectContaining({ name: "Dovolená.jpg" }));
@@ -97,7 +97,7 @@ describe("BinaryAbl", () => {
       StorageAbl.create.mockResolvedValue({ objectName: "obj1.webp", uri: "uri1" });
       dao.create.mockResolvedValue({ _id: "db1", name: "photo.jpg.webp" });
 
-      await BinaryAbl.create({ file });
+      await BinaryAbl.create({ collection: "sys", file });
 
       expect(StorageAbl.create).toHaveBeenCalledWith(file, "photo.jpg.webp");
     });
@@ -107,7 +107,7 @@ describe("BinaryAbl", () => {
       StorageAbl.create.mockResolvedValue({ objectName: "obj2", uri: "uri2" });
       dao.create.mockResolvedValue({ _id: "db2", name: "original.txt", objectName: "obj2" });
 
-      await BinaryAbl.create({ file });
+      await BinaryAbl.create({ collection: "sys", file });
 
       expect(dao.create).toHaveBeenCalledWith(
         expect.objectContaining({ name: "original.txt" })
@@ -119,7 +119,7 @@ describe("BinaryAbl", () => {
       StorageAbl.create.mockResolvedValue({ objectName: "obj3", uri: "uri3" });
       dao.create.mockRejectedValue(new Error("dao error"));
 
-      await expect(BinaryAbl.create({ file })).rejects.toThrow(Crud.Error.CreateFailed);
+      await expect(BinaryAbl.create({ collection: "sys", file })).rejects.toThrow(Crud.Error.CreateFailed);
       expect(StorageAbl.delete).toHaveBeenCalledWith("obj3");
     });
 
@@ -130,14 +130,14 @@ describe("BinaryAbl", () => {
       StorageAbl.delete.mockRejectedValue(new Error("storage delete failed"));
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 
-      await expect(BinaryAbl.create({ file })).rejects.toThrow(Crud.Error.CreateFailed);
+      await expect(BinaryAbl.create({ collection: "sys", file })).rejects.toThrow(Crud.Error.CreateFailed);
       consoleSpy.mockRestore();
     });
 
     it("should throw CreateFailed when the upload fails (no rollback needed)", async () => {
       StorageAbl.create.mockRejectedValue(new Error("upload failed"));
 
-      await expect(BinaryAbl.create({ file: {} })).rejects.toThrow(Crud.Error.CreateFailed);
+      await expect(BinaryAbl.create({ collection: "sys", file: {} })).rejects.toThrow(Crud.Error.CreateFailed);
       expect(StorageAbl.delete).not.toHaveBeenCalled();
     });
   });

@@ -13,82 +13,151 @@ jest.mock("../../src/caio-server-binarystore/abl/binary-abl", () => ({
 import createApi from "../../src/caio-server-binarystore/api/binary-api.js";
 import Binary from "../../src/caio-server-binarystore/abl/binary-abl.js";
 
+const GALLERY_EDITOR = { identity: "2-2-1", profileList: ["galleryEditor"] };
+const OPERATIVE = { identity: "1-1-1", profileList: ["operatives"] };
+
+function createTestApi() {
+  return createApi({
+    collectionMap: {
+      // public to read, one role to write
+      gallery: { write: { profileList: ["galleryEditor", "operatives"] } },
+      // nobody but operatives, reading included
+      sys: { read: { profileList: ["operatives"] }, write: { profileList: ["operatives"] } },
+      // named people regardless of role
+      file: { write: { identityList: ["1-1-1"] } },
+      // app decides
+      custom: { write: { authorize: jest.fn(async ({ dtoIn }) => dtoIn.magic === true) } },
+    },
+  });
+}
+
 describe("BinaryStore createApi", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    Binary.get.mockResolvedValue({ id: "b1", collection: "gallery" });
   });
 
   it("registers the five afkbratcice use-cases plus deleteMany for the bulk-delete button", () => {
-    const api = createApi();
+    const api = createTestApi();
     expect(Object.keys(api)).toEqual([
       "binary/list", "binary/get", "binary/create", "binary/update", "binary/delete", "binary/deleteMany",
     ]);
   });
 
-  it("defaults list/get to no auth", () => {
-    const api = createApi();
-    expect(api["binary/list"].auth).toBeUndefined();
-    expect(api["binary/get"].auth).toBeUndefined();
-  });
-
-  it("defaults create/update/delete/deleteMany to requiring a login when not configured", () => {
-    const api = createApi();
-    expect(api["binary/create"].auth).toBe(true);
-    expect(api["binary/update"].auth).toBe(true);
-    expect(api["binary/delete"].auth).toBe(true);
-    expect(api["binary/deleteMany"].auth).toBe(true);
-  });
-
-  it("defaults deleteMany's auth to delete's when only delete is configured", () => {
-    const api = createApi({ delete: { profileList: ["admin"] } });
-    expect(api["binary/deleteMany"].auth).toEqual(["admin"]);
-  });
-
-  it("lets deleteMany's auth be configured independently of delete", () => {
-    const api = createApi({
-      delete: { profileList: ["admin"] },
-      deleteMany: { profileList: ["superadmin"] },
+  describe("collection stated in dtoIn (list, create)", () => {
+    it("lets an anonymous caller read a collection with no read rule", async () => {
+      const api = createTestApi();
+      await expect(api["binary/list"].auth({ dtoIn: { collection: "gallery" }, identity: null })).resolves.toBe(true);
     });
-    expect(api["binary/deleteMany"].auth).toEqual(["superadmin"]);
+
+    it("refuses an anonymous caller on a collection that restricts reading", async () => {
+      const api = createTestApi();
+      await expect(api["binary/list"].auth({ dtoIn: { collection: "sys" }, identity: null })).resolves.toBe(false);
+    });
+
+    it("matches a profile from the collection's write rule", async () => {
+      const api = createTestApi();
+      await expect(
+        api["binary/create"].auth({ dtoIn: { collection: "gallery" }, identity: GALLERY_EDITOR }),
+      ).resolves.toBe(true);
+    });
+
+    it("keeps a role out of a collection it does not own", async () => {
+      const api = createTestApi();
+      await expect(
+        api["binary/create"].auth({ dtoIn: { collection: "sys" }, identity: GALLERY_EDITOR }),
+      ).resolves.toBe(false);
+    });
+
+    it("supports naming identities instead of roles", async () => {
+      const api = createTestApi();
+      await expect(api["binary/create"].auth({ dtoIn: { collection: "file" }, identity: OPERATIVE })).resolves.toBe(true);
+      await expect(
+        api["binary/create"].auth({ dtoIn: { collection: "file" }, identity: GALLERY_EDITOR }),
+      ).resolves.toBe(false);
+    });
+
+    it("hands the decision to a custom authorize fn", async () => {
+      const api = createTestApi();
+      await expect(
+        api["binary/create"].auth({ dtoIn: { collection: "custom", magic: true }, identity: OPERATIVE }),
+      ).resolves.toBe(true);
+      await expect(
+        api["binary/create"].auth({ dtoIn: { collection: "custom" }, identity: OPERATIVE }),
+      ).resolves.toBe(false);
+    });
+
+    it("rejects an unknown collection with a 400 rather than a silent pass", async () => {
+      const api = createTestApi();
+      await expect(
+        api["binary/create"].auth({ dtoIn: { collection: "nope" }, identity: OPERATIVE }),
+      ).rejects.toMatchObject({ status: 400, code: "caio-server-binarystore/unknownCollection" });
+    });
+
+    it("requires collection in dtoIn for list and create", () => {
+      const api = createTestApi();
+      expect(() => api["binary/list"].validator({ dtoIn: {} })).toThrow(/collection is required/);
+      expect(() => api["binary/create"].validator({ dtoIn: {} })).toThrow(/collection is required/);
+    });
   });
 
-  it("maps { profileList } to auth as a profile array", () => {
-    const api = createApi({ create: { profileList: ["operatives"] } });
-    expect(api["binary/create"].auth).toEqual(["operatives"]);
+  describe("collection taken from the stored record (get, update, delete)", () => {
+    it("uses the record's collection, not the one the caller claims", async () => {
+      const api = createTestApi();
+      // caller says "gallery" (which they may write), the record is in "sys" (which they may not)
+      Binary.get.mockResolvedValue({ id: "b1", collection: "sys" });
+      await expect(
+        api["binary/update"].auth({ dtoIn: { id: "b1", collection: "gallery" }, identity: GALLERY_EDITOR }),
+      ).resolves.toBe(false);
+      expect(Binary.get).toHaveBeenCalledWith("b1");
+    });
+
+    it("passes the loaded record to a custom authorize fn", async () => {
+      const authorize = jest.fn(async ({ binary }) => binary.collection === "custom");
+      const api = createApi({ collectionMap: { custom: { write: { authorize } } } });
+      Binary.get.mockResolvedValue({ id: "b9", collection: "custom" });
+
+      await expect(api["binary/delete"].auth({ dtoIn: { id: "b9" }, identity: OPERATIVE })).resolves.toBe(true);
+      expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ binary: { id: "b9", collection: "custom" } }));
+    });
+
+    it("lets the handler answer 404 when the record is missing", async () => {
+      const api = createTestApi();
+      Binary.get.mockResolvedValue(null);
+      await expect(api["binary/delete"].auth({ dtoIn: { id: "gone" }, identity: null })).resolves.toBe(true);
+    });
+
+    it("deleteMany refuses the whole batch when one file is out of reach", async () => {
+      const api = createTestApi();
+      Binary.get.mockImplementation(async (id) => ({ id, collection: id === "b2" ? "sys" : "gallery" }));
+      await expect(
+        api["binary/deleteMany"].auth({ dtoIn: { idList: ["b1", "b2"] }, identity: GALLERY_EDITOR }),
+      ).resolves.toBe(false);
+    });
+
+    it("deleteMany passes when every file is in reach", async () => {
+      const api = createTestApi();
+      Binary.get.mockImplementation(async (id) => ({ id, collection: "gallery" }));
+      await expect(
+        api["binary/deleteMany"].auth({ dtoIn: { idList: ["b1", "b2"] }, identity: GALLERY_EDITOR }),
+      ).resolves.toBe(true);
+    });
   });
 
-  it("maps { authorize } to auth as the custom async fn, taking priority over profileList", () => {
-    const authorize = async () => true;
-    const api = createApi({ delete: { authorize, profileList: ["admin"] } });
-    expect(api["binary/delete"].auth).toBe(authorize);
-  });
+  describe("handlers", () => {
+    it("list passes the filter through and wraps the result", async () => {
+      const api = createTestApi();
+      Binary.list.mockResolvedValue([{ id: "b1" }]);
+      const dtoOut = await api["binary/list"].fn({ dtoIn: { collection: "gallery", refId: "g1" } });
+      expect(Binary.list).toHaveBeenCalledWith({ collection: "gallery", refId: "g1" });
+      expect(dtoOut).toEqual({ itemList: [{ id: "b1" }] });
+    });
 
-  it("requires an id for get/delete", () => {
-    const api = createApi();
-    expect(() => api["binary/get"].validator({ dtoIn: {} })).toThrow();
-    expect(() => api["binary/delete"].validator({ dtoIn: { id: "" } })).toThrow();
-    expect(api["binary/get"].validator({ dtoIn: { id: "abc" } })).toEqual({ id: "abc" });
-  });
-
-  it("requires a non-empty idList for deleteMany", () => {
-    const api = createApi();
-    expect(() => api["binary/deleteMany"].validator({ dtoIn: {} })).toThrow();
-    expect(() => api["binary/deleteMany"].validator({ dtoIn: { idList: [] } })).toThrow();
-    expect(api["binary/deleteMany"].validator({ dtoIn: { idList: ["a", "b"] } })).toEqual({ idList: ["a", "b"] });
-  });
-
-  it("delegates to Binary abl", async () => {
-    const api = createApi();
-    await api["binary/get"].fn({ dtoIn: { id: "abc" } });
-    expect(Binary.get).toHaveBeenCalledWith("abc");
-
-    await api["binary/delete"].fn({ dtoIn: { id: "abc" } });
-    expect(Binary.delete).toHaveBeenCalledWith("abc");
-
-    await api["binary/deleteMany"].fn({ dtoIn: { idList: ["a", "b"] } });
-    expect(Binary.deleteMany).toHaveBeenCalledWith(["a", "b"]);
-
-    await api["binary/list"].fn({ dtoIn: undefined });
-    expect(Binary.list).toHaveBeenCalledWith({});
+    it("create hands the whole dtoIn to the abl", async () => {
+      const api = createTestApi();
+      const dtoIn = { collection: "gallery", refId: "g1", file: {}, name: "a.jpg" };
+      await api["binary/create"].fn({ dtoIn });
+      expect(Binary.create).toHaveBeenCalledWith(dtoIn);
+    });
   });
 });
