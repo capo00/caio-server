@@ -14,24 +14,21 @@ function convertId(object) {
   return object;
 }
 
-function convertToId(obj) {
-  let result;
-  if (obj.constructor === Array) {
-    result = obj.map((element) => {
-      if (element.hasOwnProperty("_id")) {
-        element.id = element._id;
-        delete element._id;
-      }
-      return element;
-    });
-  } else {
-    if (obj.hasOwnProperty("_id")) {
-      obj.id = obj._id;
-      delete obj._id;
-    }
-    result = obj;
+// _id -> id, and **as a string**. It used to hand back the ObjectId itself, which looks
+// harmless because JSON.stringify turns it into the same string over the wire -- but in
+// process it silently breaks every comparison against an id that came from a client
+// (`team.id === dtoIn.teamId` is false, `$in: [idFromDao]` matches nothing). Strings are
+// also symmetric with the input side: get(), listByIdList() and update() all take them.
+function toId(element) {
+  if (element && element.hasOwnProperty("_id")) {
+    element.id = String(element._id);
+    delete element._id;
   }
-  return result;
+  return element;
+}
+
+function convertToId(obj) {
+  return obj?.constructor === Array ? obj.map(toId) : toId(obj);
 }
 
 function createData(data) {

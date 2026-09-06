@@ -232,3 +232,20 @@ describe("Dao", () => {
     });
   });
 });
+
+describe("id conversion", () => {
+  // The ObjectId used to come back as-is. Over the wire that looks identical, but in
+  // process every comparison against an id sent by a client quietly failed
+  // (`team.id === dtoIn.teamId` was false, `$in: [idFromDao]` matched nothing).
+  it("returns id as a string, not an ObjectId", async () => {
+    // The mocked ObjectId stringifies as ObjectId(<id>); what matters here is that Dao
+    // calls String() on it at all instead of passing the instance through.
+    const doc = { _id: { toString: () => "6a9cae734bed2458a3d19380" }, name: "AFK" };
+    mockCollection.find.mockReturnValue(mockFindChain([doc]));
+
+    const [item] = await new Dao("testCollection").find({});
+    expect(typeof item.id).toBe("string");
+    expect(item.id).toBe("6a9cae734bed2458a3d19380");
+    expect(item._id).toBeUndefined();
+  });
+});
