@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import Config from "../config/config.js";
 import { Error } from "../../caio-server-core/index.js";
@@ -49,6 +50,11 @@ function providerField(provider) {
   // Note: `Error` here is caio-server-core's AppError, not the global one.
   if (!field) throw new Error.Failed(`Unknown identity provider "${provider}"`, { code: CODE_PREFIX + "/unknownProvider" });
   return field;
+}
+
+/** Reset tokens are stored hashed; sha-256 is enough for 32 random bytes. */
+function hashResetToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
 }
 
 const emailPattern = new RegExp(Config.emailPatternSource);
@@ -188,6 +194,54 @@ function createIdentity(identityDao, collectionName = "sys_identity") {
 
     matchPassword(inputPassword, storedPassword) {
       return bcrypt.compare(inputPassword, storedPassword);
+    },
+
+    /**
+     * Issues a one-time password-reset token and returns the *plaintext* one -- the only
+     * moment it exists. The document keeps a sha-256 hash, so a leaked database does not
+     * hand over working reset links (same reasoning as storing passwords hashed).
+     */
+    async createPasswordResetToken(found) {
+      const token = crypto.randomBytes(Config.passwordReset.tokenBytes).toString("hex");
+      await identityDao.update({
+        id: found.id,
+        resetTokenHash: hashResetToken(token),
+        resetTokenExpireTime: new Date(Date.now() + Config.passwordReset.tokenLifetimeMs).toISOString(),
+      });
+      return token;
+    },
+
+    /**
+     * Consumes a reset token and sets the new password.
+     *
+     * @returns null on success, otherwise { code, message } for the client.
+     */
+    async resetPassword(token, password) {
+      if (typeof token !== "string" || !token) {
+        return { code: "invalidToken", message: "Reset token is not valid" };
+      }
+
+      const found = await identityDao.findOne({ resetTokenHash: hashResetToken(token) });
+      // Same answer for an unknown and an expired token: knowing which is which only
+      // helps somebody guessing.
+      if (!found) return { code: "invalidToken", message: "Reset token is not valid" };
+      if (!found.resetTokenExpireTime || new Date(found.resetTokenExpireTime) < new Date()) {
+        return { code: "tokenExpired", message: "Reset token has expired" };
+      }
+
+      const passwordProblem = Identity.checkPassword(password);
+      if (passwordProblem) return passwordProblem;
+
+      const salt = await bcrypt.genSalt(10);
+      await identityDao.update({
+        id: found.id,
+        password: await bcrypt.hash(password, salt),
+        // One use only. `null` rather than $unset because Dao.update only does $set --
+        // and findOne({ resetTokenHash: <hash> }) can never match null.
+        resetTokenHash: null,
+        resetTokenExpireTime: null,
+      });
+      return null;
     },
 
     createToken(identity) {

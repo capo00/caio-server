@@ -6,15 +6,27 @@ jest.mock("../../src/caio-server-auth/config/config", () => ({
   token: { jwtSecret: "test-secret", jwtLifetime: "1d" },
   google: { callbackUc: "google/callback" },
   password: { minLength: 10, maxBytes: 72, patternSource: "(?=.*\\d)", patternFlags: "u" },
+  passwordReset: { tokenLifetimeMs: 30 * 60 * 1000, tokenBytes: 32 },
+  // A function, like the real config: env files are loaded after import (helpers/mailer.js).
+  mail: () => ({}),
   ERROR_PREFIX: "caio-server-auth/",
 }));
 
 jest.mock("../../src/caio-server-auth/abl/identity", () => ({}));
 
+jest.mock("../../src/caio-server-auth/helpers/mailer.js", () => ({
+  __esModule: true,
+  default: {
+    isConfigured: jest.fn(() => true),
+    sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
 import jwt from "jsonwebtoken";
 import fs from "fs";
 import passport from "passport";
 import Routes from "../../src/caio-server-auth/api/routes.js";
+import Mailer from "../../src/caio-server-auth/helpers/mailer.js";
 
 function createMockIdentity() {
   return {
@@ -26,6 +38,8 @@ function createMockIdentity() {
     getAuthMethodList: jest.fn(() => []),
     isEmailValid: jest.fn(() => true),
     checkPassword: jest.fn(() => null),
+    createPasswordResetToken: jest.fn().mockResolvedValue("plain-token"),
+    resetPassword: jest.fn().mockResolvedValue(null),
   };
 }
 
@@ -278,6 +292,88 @@ describe("Auth Routes", () => {
 
       expect(res.status).toHaveBeenCalledWith(500);
       consoleSpy.mockRestore();
+    });
+  });
+
+  describe("password reset", () => {
+    // The whole point of this endpoint: it must not become a way of asking which
+    // e-mails are registered. Every path below has to answer the same 200 {}.
+    it("answers 200 for an address that has a password, and mails a link", async () => {
+      const handler = getHandler(router, "post", "/password/reset-request");
+      const found = { id: "i1", email: "a@b.cz", password: "hash", firstName: "Jan" };
+      identity.findByEmail.mockResolvedValue(found);
+
+      const { req, res } = createMockReqRes({ body: { email: "a@b.cz" } });
+      await handler(req, res);
+
+      expect(identity.createPasswordResetToken).toHaveBeenCalledWith(found);
+      expect(Mailer.sendPasswordReset).toHaveBeenCalledWith(
+        expect.objectContaining({ to: "a@b.cz", token: "plain-token" }),
+      );
+      expect(res.json).toHaveBeenCalledWith({});
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("answers the same 200 for an unknown address, and mails nothing", async () => {
+      const handler = getHandler(router, "post", "/password/reset-request");
+      identity.findByEmail.mockResolvedValue(null);
+
+      const { req, res } = createMockReqRes({ body: { email: "nobody@b.cz" } });
+      await handler(req, res);
+
+      expect(Mailer.sendPasswordReset).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({});
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("answers the same 200 for a provider-only account", async () => {
+      const handler = getHandler(router, "post", "/password/reset-request");
+      identity.findByEmail.mockResolvedValue({ id: "i2", email: "g@b.cz", googleId: "g1" });
+
+      const { req, res } = createMockReqRes({ body: { email: "g@b.cz" } });
+      await handler(req, res);
+
+      expect(Mailer.sendPasswordReset).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({});
+    });
+
+    it("answers the same 200 when sending the mail throws", async () => {
+      const handler = getHandler(router, "post", "/password/reset-request");
+      identity.findByEmail.mockResolvedValue({ id: "i1", email: "a@b.cz", password: "hash" });
+      Mailer.sendPasswordReset.mockRejectedValueOnce(new Error("smtp down"));
+
+      const { req, res } = createMockReqRes({ body: { email: "a@b.cz" } });
+      await handler(req, res);
+
+      expect(res.json).toHaveBeenCalledWith({});
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("says so when the deployment has no mail configured", async () => {
+      Mailer.isConfigured.mockReturnValueOnce(false);
+      const handler = getHandler(router, "post", "/password/reset-request");
+      const { req, res } = createMockReqRes({ body: { email: "a@b.cz" } });
+      await handler(req, res);
+      expectError(res, 400, "passwordResetDisabled");
+    });
+
+    it("sets the new password and does not sign the caller in", async () => {
+      const handler = getHandler(router, "post", "/password/reset");
+      const { req, res } = createMockReqRes({ body: { token: "t", password: "Heslo12345" } });
+      await handler(req, res);
+
+      expect(identity.resetPassword).toHaveBeenCalledWith("t", "Heslo12345");
+      expect(res.json).toHaveBeenCalledWith({});
+      // Reading a mailbox is not the same as sitting at a trusted device.
+      expect(res.cookie).not.toHaveBeenCalled();
+    });
+
+    it("passes a bad token through as a 400", async () => {
+      identity.resetPassword.mockResolvedValue({ code: "tokenExpired", message: "expired" });
+      const handler = getHandler(router, "post", "/password/reset");
+      const { req, res } = createMockReqRes({ body: { token: "old", password: "Heslo12345" } });
+      await handler(req, res);
+      expectError(res, 400, "tokenExpired");
     });
   });
 

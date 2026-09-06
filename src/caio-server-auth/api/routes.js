@@ -5,6 +5,7 @@ import DefaultIdentity from "../abl/identity.js";
 import Config from "../config/config.js";
 import Passport from "../helpers/passport.js";
 import { PROVIDERS, getProviderList, isConfigured } from "../helpers/providers.js";
+import Mailer from "../helpers/mailer.js";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -76,7 +77,58 @@ const Routes = {
       res.json({
         providerList: getProviderList(),
         password: { minLength, maxBytes, patternSource, patternFlags },
+        // Same rule as providerList: a capability the deployment cannot deliver is not
+        // offered, so the login page never shows a link that would dead-end.
+        passwordResetEnabled: Mailer.isConfigured(),
       });
+    });
+
+    // Asks for a reset link.
+    //
+    // Answers 200 whatever happens -- unknown address, address that only signs in
+    // through Google, mail server down. Anything else turns this into a way of asking
+    // which e-mails are registered, and the person who legitimately mistyped their
+    // address is no worse off for it. Failures are logged, not returned.
+    router.post("/password/reset-request", parseJson, async (req, res) => {
+      const { email } = req.body ?? {};
+
+      if (!Mailer.isConfigured()) {
+        return sendError(res, 400, "passwordResetDisabled", "Password reset is not configured");
+      }
+
+      try {
+        const found = identity.isEmailValid(email) ? await identity.findByEmail(email) : null;
+
+        // No password on the document means the account exists but signs in through a
+        // provider; sending a reset link would add a password nobody asked for.
+        if (found?.password) {
+          const token = await identity.createPasswordResetToken(found);
+          await Mailer.sendPasswordReset({ to: found.email, token, name: found.firstName || found.name });
+        }
+      } catch (err) {
+        console.error("/auth/password/reset-request: Unexpected exception", err);
+      }
+
+      res.json({});
+    });
+
+    // Consumes the token and sets the new password.
+    router.post("/password/reset", parseJson, async (req, res) => {
+      const { token, password } = req.body ?? {};
+
+      try {
+        const problem = await identity.resetPassword(token, password);
+        if (problem) return sendError(res, 400, problem.code, problem.message);
+
+        // Deliberately no cookie: the person proved they can read the mailbox, not that
+        // they are at a trusted device. They sign in with the new password.
+        res.json({});
+      } catch (err) {
+        console.error("/auth/password/reset: Unexpected exception", err);
+        res.status(500).json({
+          error: { code: Config.ERROR_PREFIX + "unexpected", message: "Unexpected exception", cause: err },
+        });
+      }
     });
 
     router.post("/register", parseJson, async (req, res) => {
