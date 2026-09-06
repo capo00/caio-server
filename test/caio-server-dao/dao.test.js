@@ -121,6 +121,23 @@ describe("Dao", () => {
       expect(result[0]).toHaveProperty("name", "A");
       expect(result[0]).toHaveProperty("sys");
     });
+
+    // The driver stamps _id onto each document it inserts. Leaving it there handed the
+    // caller two keys for the same thing, and `id` as an ObjectId rather than a string --
+    // which is what convertToId() was fixed to avoid everywhere else.
+    it("should drop _id and return id as a string, like create()", async () => {
+      const objectId = { toString: () => "507f1f77bcf86cd799439011" };
+      mockCollection.insertMany.mockImplementation(async (docList) => {
+        docList.forEach((doc) => { doc._id = objectId; });
+        return { insertedIds: { 0: objectId } };
+      });
+
+      const [result] = await dao.createMany([{ name: "A" }]);
+
+      expect(result).not.toHaveProperty("_id");
+      expect(result.id).toBe("507f1f77bcf86cd799439011");
+      expect(typeof result.id).toBe("string");
+    });
   });
 
   describe("find", () => {

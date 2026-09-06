@@ -93,7 +93,11 @@ class Dao {
   async createMany(dataList) {
     const newDataList = dataList.map((data) => createData(data));
     const { insertedIds } = await this._exec(() => this.coll.insertMany(newDataList));
-    return newDataList.map((data, i) => ({ id: insertedIds[i], ...data }));
+    // Same shape as create(): no _id, and `id` as a string. It used to spread the document
+    // after `{ id: insertedIds[i] }`, which left BOTH an ObjectId `id` and the `_id` that
+    // insertMany stamps onto each document -- so a caller got two keys for the same thing
+    // and every comparison against an id that came from a client silently failed.
+    return newDataList.map(({ _id, ...data }, i) => ({ id: String(_id ?? insertedIds[i]), ...data }));
   }
 
   async update(data) {
