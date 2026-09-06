@@ -132,10 +132,8 @@ function createApi({ collectionMap = {} } = {}) {
       method: "get",
       auth: authByDtoIn("list"),
       validator: requireCollection,
-      fn: async ({ dtoIn }) => {
-        const itemList = await Binary.list(dtoIn ?? {});
-        return { itemList };
-      },
+      // Vrací `pageInfo` -- `UiElements.Crud` bez `total` druhou stránku nenačte.
+      fn: ({ dtoIn }) => Binary.listPage(dtoIn ?? {}),
     },
 
     "binary/get": {

@@ -25,9 +25,18 @@ class BinaryDao extends Dao {
    * client filter by them -- app-specific fields are not exposed this way.
    */
   listByCollection({ collection, refId }, pageInfo) {
+    return this.find(this._collectionFilter({ collection, refId }), pageInfo, { "sys.cts": -1 });
+  }
+
+  /** Same filter, plus the total -- see `Dao.findPage()`. */
+  listByCollectionPage({ collection, refId }, pageInfo) {
+    return this.findPage(this._collectionFilter({ collection, refId }), pageInfo, { "sys.cts": -1 });
+  }
+
+  _collectionFilter({ collection, refId }) {
     const filter = { collection };
     if (refId) filter.refId = refId;
-    return this.find(filter, pageInfo, { "sys.cts": -1 });
+    return filter;
   }
 }
 

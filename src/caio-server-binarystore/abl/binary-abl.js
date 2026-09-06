@@ -34,6 +34,19 @@ class BinaryAbl extends Crud {
     return super.list({ pageInfo, idList });
   }
 
+  /**
+   * `list()` plus `pageInfo`. This is the list `UiElements.Crud` runs on, so it is the one
+   * place where the total is not optional -- without it the table shows the first page and
+   * never asks for a second.
+   */
+  async listPage({ pageInfo, idList, collection, refId } = {}) {
+    if (collection) {
+      const result = await this.dao.listByCollectionPage({ collection, refId }, pageInfo);
+      return { ...result, itemList: result.itemList.map((item) => this._getData(item)) };
+    }
+    return super.listPage({ pageInfo, idList });
+  }
+
   async create(data) {
     const { file, name, ...restParams } = data;
 

@@ -140,6 +140,45 @@ describe("Dao", () => {
     });
   });
 
+  describe("findPage", () => {
+    // `find()` sám o sobě stránkovat neumí: kdo dostane 20 řádků, nepozná "to je všechno"
+    // od "to je první z devíti stránek". `useDataList` v uu5g05 potřebuje `total`.
+    it("returns itemList together with pageInfo including the total", async () => {
+      mockFindChain([{ _id: "a" }, { _id: "b" }]);
+      mockCollection.countDocuments = jest.fn().mockResolvedValue(42);
+
+      const result = await dao.findPage({ age: "men" }, { pageSize: 2, pageIndex: 3 });
+
+      expect(result.itemList).toHaveLength(2);
+      expect(result.itemList[0]).toHaveProperty("id", "a");
+      expect(result.pageInfo).toEqual({ pageIndex: 3, pageSize: 2, total: 42 });
+    });
+
+    it("counts with the same filter it queries with", async () => {
+      mockFindChain([]);
+      mockCollection.countDocuments = jest.fn().mockResolvedValue(0);
+      await dao.findPage({ age: "men" });
+      expect(mockCollection.countDocuments).toHaveBeenCalledWith({ age: "men" });
+    });
+
+    // convertId() přepisuje `id` na `_id` **in place**, takže sdílený objekt by znamenal,
+    // že jeden ze dvou souběžných dotazů závodí s mutací toho druhého.
+    it("does not mutate the caller's filter", async () => {
+      mockFindChain([]);
+      mockCollection.countDocuments = jest.fn().mockResolvedValue(0);
+      const filter = { id: "507f1f77bcf86cd799439011" };
+      await dao.findPage(filter);
+      expect(filter).toEqual({ id: "507f1f77bcf86cd799439011" });
+    });
+
+    it("defaults to the first page and the default page size", async () => {
+      mockFindChain([]);
+      mockCollection.countDocuments = jest.fn().mockResolvedValue(7);
+      const { pageInfo } = await dao.findPage();
+      expect(pageInfo).toEqual({ pageIndex: 0, pageSize: 1000, total: 7 });
+    });
+  });
+
   describe("find", () => {
     it("should apply default pageSize of 1000", async () => {
       const chain = mockFindChain([]);

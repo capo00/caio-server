@@ -198,9 +198,11 @@ Generic MongoDB data access object. Handles connection pooling, `id`/`_id` conve
 | Method                                                | Desc                                                                       |
 |-------------------------------------------------------|----------------------------------------------------------------------------|
 | `createIndex(keys, opts)`                             | Creates an index on the collection.                                        |
-| `find(filter, { pageSize, pageIndex }, sort, projection)` | Finds documents matching filter with pagination. Default `pageSize`: 1000. |
+| `find(filter, { pageSize, pageIndex }, sort, projection)` | Finds documents matching filter with pagination. Default `pageSize`: 1000. Returns an **array**. |
+| `findPage(filter, pageInfo, sort, projection)`        | Same query **plus the total**: `{ itemList, pageInfo: { pageIndex, pageSize, total } }`. See below. |
 | `findOne(filter, projection, sort)`                   | Returns first matching document or `null`.                                 |
 | `list(pageInfo)`                                      | Lists all documents with optional pagination.                              |
+| `listPage(pageInfo)`                                  | `findPage()` over the whole collection.                                    |
 | `listByIdList(idList)`                                | Finds documents by an array of ids.                                        |
 | `get(id)`                                             | Gets a single document by `id`.                                            |
 | `create(data)`                                        | Inserts a document. Adds `sys: { cts, mts }`. Key `sys` in data is reserved and throws `DaoError`. |
@@ -209,6 +211,32 @@ Generic MongoDB data access object. Handles connection pooling, `id`/`_id` conve
 | `delete(id)`                                          | Deletes a document by `id`.                                                |
 | `deleteMany(idList)`                                  | Deletes multiple documents by ids.                                         |
 | `deleteByFilter(filter)`                              | Deletes all documents matching filter.                                     |
+
+##### Paging: `findPage()` vs. `find()`
+
+`find()` cannot support paging on its own. A client that receives 20 rows has no way to
+tell *"that is everything"* from *"that is the first of nine pages"* — and uu5g05's
+`useDataList`, which `UiElements.Crud` runs on, needs `pageInfo.total` to decide whether to
+ask for the next page at all. Without it a list is one batch and nothing more.
+
+`findPage()` is a **separate method rather than a change to `find()`** on purpose: `find()`
+is the most-used method on the whole stack and every dao in every app builds on it, so
+turning its return value from an array into an object would break all of them at once for
+the sake of a number only list use-cases need. The count is also a second round trip to
+Mongo — worth it for a paged list, wasteful for an internal lookup.
+
+```js
+// dao
+listByTeamPage(teamId, pageInfo) {
+  return this.findPage({ teamId }, pageInfo, { "sys.cts": -1 });
+}
+
+// use case -- the dtoOut shape useDataList expects
+"player/list": { method: "get", fn: ({ dtoIn }) => playerDao.listByTeamPage(dtoIn.teamId, dtoIn.pageInfo) }
+```
+
+`Crud.listPage()` is the same idea one layer up, and `binary/list` already returns this
+shape — it is the list `UiElements.Crud` consumes.
 
 ```
 const { Dao } = require("caio-server");

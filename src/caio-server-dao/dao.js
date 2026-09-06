@@ -83,6 +83,42 @@ class Dao {
   listByIdList(idList) { return this.find({ _id: { $in: idList.map((id) => new ObjectId(id)) } }); }
   get(id) { return this.findOne({ id }); }
 
+  /**
+   * Like find(), but also says how many rows the filter matches in total.
+   *
+   * `find()` on its own cannot support paging: a client that gets 20 rows back has no way
+   * to tell "that is everything" from "that is the first of nine pages". uu5g05's
+   * `useDataList` -- which is what `UiElements.Crud` runs on -- needs `pageInfo.total` to
+   * decide whether to ask for the next page at all, so without it a list is one batch and
+   * nothing more.
+   *
+   * **This is a separate method rather than a change to `find()` on purpose.** `find()` is
+   * the most-used method on the whole stack and every dao in every app builds on it;
+   * turning its return value from an array into an object would break all of them at once
+   * for the sake of a number only list use-cases need. Callers that want paging opt in.
+   *
+   * The count is a second round trip to Mongo, so it is worth it for a paged list and
+   * wasteful for an internal lookup -- another reason the two are separate methods.
+   *
+   * @returns {{ itemList: object[], pageInfo: { pageIndex: number, pageSize: number, total: number } }}
+   */
+  async findPage(filter = {}, { pageSize = DEFAULT_PAGE_SIZE, pageIndex = 0 } = {}, sort = {}, projection = {}) {
+    // Converted once and reused: convertId() rewrites `id` to `_id` **in place**, so
+    // handing the same object to two concurrent queries would mean one of them racing the
+    // other's mutation.
+    const mongoFilter = convertId({ ...filter });
+
+    const [itemList, total] = await Promise.all([
+      this._exec(() => this._find(mongoFilter, { projection }, sort, pageIndex * pageSize, pageSize)),
+      this._exec(() => this.coll.countDocuments(mongoFilter)),
+    ]);
+
+    return { itemList, pageInfo: { pageIndex, pageSize, total } };
+  }
+
+  /** `findPage()` over the whole collection -- the paged counterpart of `list()`. */
+  listPage(pageInfo) { return this.findPage(undefined, pageInfo); }
+
   async create(data) {
     if (data.sys) throw new DaoError("Key 'sys' is reserved in each dao object " + JSON.stringify(data), "create/invalidSys");
     const newData = createData(data);

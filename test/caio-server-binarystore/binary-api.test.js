@@ -2,6 +2,7 @@ jest.mock("../../src/caio-server-binarystore/abl/binary-abl", () => ({
   __esModule: true,
   default: {
     list: jest.fn().mockResolvedValue([]),
+    listPage: jest.fn().mockResolvedValue({ itemList: [], pageInfo: { pageIndex: 0, pageSize: 1000, total: 0 } }),
     get: jest.fn().mockResolvedValue({}),
     create: jest.fn().mockResolvedValue({}),
     update: jest.fn().mockResolvedValue({}),
@@ -145,12 +146,15 @@ describe("BinaryStore createApi", () => {
   });
 
   describe("handlers", () => {
-    it("list passes the filter through and wraps the result", async () => {
+    // Seznam jde přes `listPage`, ne `list`: `UiElements.Crud` bez `pageInfo.total` neví,
+    // jestli má načíst druhou stránku, takže tahle jediná list operace total potřebuje.
+    it("list passes the filter through and returns itemList with pageInfo", async () => {
       const api = createTestApi();
-      Binary.list.mockResolvedValue([{ id: "b1" }]);
+      const pageInfo = { pageIndex: 0, pageSize: 1000, total: 1 };
+      Binary.listPage.mockResolvedValue({ itemList: [{ id: "b1" }], pageInfo });
       const dtoOut = await api["binary/list"].fn({ dtoIn: { collection: "gallery", refId: "g1" } });
-      expect(Binary.list).toHaveBeenCalledWith({ collection: "gallery", refId: "g1" });
-      expect(dtoOut).toEqual({ itemList: [{ id: "b1" }] });
+      expect(Binary.listPage).toHaveBeenCalledWith({ collection: "gallery", refId: "g1" });
+      expect(dtoOut).toEqual({ itemList: [{ id: "b1" }], pageInfo });
     });
 
     it("create hands the whole dtoIn to the abl", async () => {

@@ -62,6 +62,27 @@ class Crud {
     return dtoOut;
   }
 
+  /**
+   * `list()` plus `pageInfo` -- the shape uu5g05's `useDataList` (and therefore
+   * `UiElements.Crud`) needs in order to load a second page at all.
+   *
+   * Separate from `list()` for the same reason `Dao.findPage()` is separate from `find()`:
+   * counting is a second query, and plenty of callers use `list()` internally where the
+   * total is of no use. See the comment on `Dao.findPage()`.
+   *
+   * `idList` is answered without a count -- the caller already knows how many ids it asked
+   * for, so `total` is simply how many of them exist.
+   */
+  async listPage({ pageInfo, idList } = {}) {
+    if (idList) {
+      const itemList = (await this.dao.listByIdList(idList)).map(this._getData);
+      return { itemList, pageInfo: { pageIndex: 0, pageSize: itemList.length, total: itemList.length } };
+    }
+
+    const result = await this.dao.listPage(pageInfo);
+    return { ...result, itemList: result.itemList.map(this._getData) };
+  }
+
   async get(id) {
     return this._getData(await this._get(id));
   }
