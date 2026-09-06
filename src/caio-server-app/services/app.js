@@ -8,7 +8,7 @@ import Config from "../config/config.js";
 import Command from "./command.js";
 
 const App = {
-  init({ api = {}, publicPath = path.resolve(process.cwd(), "public"), authList } = {}) {
+  init({ api = {}, publicPath = path.resolve(process.cwd(), "public"), authList, middlewareList = [] } = {}) {
     const app = express();
 
     app.use(cors());
@@ -17,6 +17,12 @@ const App = {
 
     Auth.init(app);
     if (authList) authList.forEach(cfg => Auth.init(app, cfg));
+
+    // App middleware runs after the framework's own and before the use-cases and the SPA
+    // fallback. That position is the point: legacy URL redirects have to answer paths
+    // that would otherwise be swallowed by the fallback, and an app cannot register
+    // anything there itself -- init() owns the order.
+    middlewareList.forEach((middleware) => app.use(middleware));
 
     Command.createCommands(app, api, { publicPath });
 

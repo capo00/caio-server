@@ -107,8 +107,13 @@ const Command = {
       const calls = [call];
       if (auth) {
         if (Array.isArray(auth)) calls.unshift(authorization(auth));
-        calls.unshift(CaioServerAuth.authentication);
+        // `true` and a profile array mean "must be signed in". A function does not: it
+        // gets `identity` (possibly null) and decides for itself, which is the only way
+        // to express an endpoint that is public to read and restricted to write.
+        if (auth === true || Array.isArray(auth)) calls.unshift(CaioServerAuth.authentication);
       }
+      // Always first, and never rejects -- so even a public use-case knows who is asking.
+      calls.unshift(CaioServerAuth.resolveIdentity);
 
       app[method]("/" + uc, ...calls);
     }

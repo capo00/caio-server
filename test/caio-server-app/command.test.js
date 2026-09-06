@@ -1,6 +1,9 @@
 jest.mock("../../src/caio-server-auth/index.js", () => ({
   __esModule: true,
-  default: { authentication: jest.fn((req, res, next) => next()) },
+  default: {
+    authentication: jest.fn((req, res, next) => next()),
+    resolveIdentity: jest.fn((req, res, next) => next()),
+  },
 }));
 
 jest.mock("../../src/caio-server-binarystore/index.js", () => ({
@@ -60,9 +63,9 @@ describe("Command.createCommands", () => {
 
   it("should register sys/health endpoint", async () => {
     Command.createCommands(app, {}, { publicPath: "/public" });
-    expect(app.get).toHaveBeenCalledWith("/sys/health", expect.any(Function));
+    expect(app.get).toHaveBeenCalledWith("/sys/health", expect.any(Function), expect.any(Function));
 
-    const handler = app._routes["GET /sys/health"][0];
+    const handler = app._routes["GET /sys/health"].at(-1);
     const { req, res } = createMockReqRes();
     await handler(req, res, jest.fn());
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ version: expect.anything() }));
@@ -72,7 +75,16 @@ describe("Command.createCommands", () => {
     Command.createCommands(app, {
       "player/list": { method: "get", fn: jest.fn() },
     }, { publicPath: "/public" });
-    expect(app.get).toHaveBeenCalledWith("/player/list", expect.any(Function));
+    expect(app.get).toHaveBeenCalledWith("/player/list", expect.any(Function), expect.any(Function));
+  });
+
+  it("should put resolveIdentity in front of every use case, public ones included", () => {
+    Command.createCommands(app, {
+      "player/list": { method: "get", fn: jest.fn() },
+    }, { publicPath: "/public" });
+    const handlers = app._routes["GET /player/list"];
+    expect(handlers).toHaveLength(2);
+    expect(handlers[0]).toBe(CaioServerAuth.resolveIdentity);
   });
 
   it("should add authentication middleware when auth=true", () => {
@@ -80,8 +92,9 @@ describe("Command.createCommands", () => {
       "player/get": { method: "get", auth: true, fn: jest.fn() },
     }, { publicPath: "/public" });
     const handlers = app._routes["GET /player/get"];
-    expect(handlers).toHaveLength(2);
-    expect(handlers[0]).toBe(CaioServerAuth.authentication);
+    expect(handlers).toHaveLength(3);
+    expect(handlers[0]).toBe(CaioServerAuth.resolveIdentity);
+    expect(handlers[1]).toBe(CaioServerAuth.authentication);
   });
 
   it("should add authentication + authorization when auth is array", () => {
@@ -89,17 +102,21 @@ describe("Command.createCommands", () => {
       "player/create": { method: "post", auth: ["Admin"], fn: jest.fn() },
     }, { publicPath: "/public" });
     const handlers = app._routes["POST /player/create"];
-    expect(handlers).toHaveLength(3);
-    expect(handlers[0]).toBe(CaioServerAuth.authentication);
+    expect(handlers).toHaveLength(4);
+    expect(handlers[0]).toBe(CaioServerAuth.resolveIdentity);
+    expect(handlers[1]).toBe(CaioServerAuth.authentication);
   });
 
-  it("should add authentication middleware, but no authorization step, when auth is a function", () => {
+  // A function decides for itself and may allow an anonymous caller -- that is the only
+  // way to express "public to read, restricted to write" (BinaryStore collections).
+  it("should not force authentication when auth is a function", () => {
     Command.createCommands(app, {
       "player/get": { method: "get", auth: jest.fn(), fn: jest.fn() },
     }, { publicPath: "/public" });
     const handlers = app._routes["GET /player/get"];
     expect(handlers).toHaveLength(2);
-    expect(handlers[0]).toBe(CaioServerAuth.authentication);
+    expect(handlers[0]).toBe(CaioServerAuth.resolveIdentity);
+    expect(handlers).not.toContain(CaioServerAuth.authentication);
   });
 
   describe("handler", () => {
@@ -109,7 +126,7 @@ describe("Command.createCommands", () => {
         "player/get": { method: "get", fn },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["GET /player/get"][0];
+      const handler = app._routes["GET /player/get"].at(-1);
       const { req, res, next } = createMockReqRes({ query: { id: "1" } });
       await handler(req, res, next);
       expect(fn).toHaveBeenCalledWith(expect.objectContaining({ dtoIn: { id: "1" } }));
@@ -122,7 +139,7 @@ describe("Command.createCommands", () => {
         "player/get": { method: "get", fn },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["GET /player/get"][0];
+      const handler = app._routes["GET /player/get"].at(-1);
       const { req, res, next } = createMockReqRes();
       await handler(req, res, next);
       expect(res.json).toHaveBeenCalledWith({});
@@ -134,7 +151,7 @@ describe("Command.createCommands", () => {
         "player/get": { method: "get", fn },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["GET /player/get"][0];
+      const handler = app._routes["GET /player/get"].at(-1);
       const { req, res, next } = createMockReqRes();
       await handler(req, res, next);
       expect(res.json).not.toHaveBeenCalled();
@@ -146,7 +163,7 @@ describe("Command.createCommands", () => {
         "player/get": { method: "get", fn },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["GET /player/get"][0];
+      const handler = app._routes["GET /player/get"].at(-1);
       const { req, res, next } = createMockReqRes();
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
       await handler(req, res, next);
@@ -161,7 +178,7 @@ describe("Command.createCommands", () => {
         "player/get": { method: "get", fn },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["GET /player/get"][0];
+      const handler = app._routes["GET /player/get"].at(-1);
       const { req, res, next } = createMockReqRes();
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
       await handler(req, res, next);
@@ -178,7 +195,7 @@ describe("Command.createCommands", () => {
         "player/create": { method: "post", fn },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["POST /player/create"][0];
+      const handler = app._routes["POST /player/create"].at(-1);
       const { req, res, next } = createMockReqRes({
         query: { extra: "q" },
         body: { name: "John" },
@@ -196,7 +213,7 @@ describe("Command.createCommands", () => {
         "player/list": { method: "get", fn },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["GET /player/list"][0];
+      const handler = app._routes["GET /player/list"].at(-1);
       const { req, res, next } = createMockReqRes({
         query: { filter: '{"league":"I"}', plain: "text" },
       });
@@ -213,7 +230,7 @@ describe("Command.createCommands", () => {
         "binary/create": { method: "post", fn },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["POST /binary/create"][0];
+      const handler = app._routes["POST /binary/create"].at(-1);
       const { req, res, next } = createMockReqRes({
         headers: { "content-type": "multipart/form-data; boundary=---" },
         files: [{ fieldname: "file", originalname: "test.jpg" }],
@@ -230,7 +247,7 @@ describe("Command.createCommands", () => {
         "player/create": { method: "post", fn, validator },
       }, { publicPath: "/pub" });
 
-      const handler = app._routes["POST /player/create"][0];
+      const handler = app._routes["POST /player/create"].at(-1);
       const { req, res, next } = createMockReqRes({ query: { name: "John" } });
       await handler(req, res, next);
       expect(validator).toHaveBeenCalledWith({ dtoIn: { name: "John" } }, "dtoIn");
@@ -244,7 +261,7 @@ describe("Command.createCommands", () => {
       }, { publicPath: "/pub" });
 
       const handlers = app._routes["POST /admin/do"];
-      const authorizationMiddleware = handlers[1];
+      const authorizationMiddleware = handlers[2];
       const { req, res, next } = createMockReqRes();
       req.identity = { identity: "1-1-1", profileList: ["Admin", "User"] };
       authorizationMiddleware(req, res, next);
@@ -257,7 +274,7 @@ describe("Command.createCommands", () => {
       }, { publicPath: "/pub" });
 
       const handlers = app._routes["POST /admin/do"];
-      const authorizationMiddleware = handlers[1];
+      const authorizationMiddleware = handlers[2];
       const { req, res, next } = createMockReqRes();
       req.identity = { identity: "1-1-1", profileList: ["User"] };
       authorizationMiddleware(req, res, next);
@@ -304,7 +321,7 @@ describe("Command.createCommands", () => {
       }, { publicPath: "/pub" });
 
       const handlers = app._routes["POST /admin/do"];
-      const authorizationMiddleware = handlers[1];
+      const authorizationMiddleware = handlers[2];
       const { req, res, next } = createMockReqRes();
       authorizationMiddleware(req, res, next);
       expect(res.status).toHaveBeenCalledWith(401);
