@@ -18,7 +18,7 @@ nálezy N1–N5, N8 a N9 jsou vyřešené. Facebook chybí celý (fáze 2), s n�
 
 | Route | Metoda | Stav |
 |---|---|---|
-| `/auth` | GET | funguje — vrátí identitu z JWT cookie, nebo `{ identity: null }` |
+| `/auth` | GET | funguje — vrátí identitu **z databáze** podle JWT cookie, nebo `{ identity: null }` |
 | `/auth/config` | GET | providery s credentials + pravidlo na heslo, pro přihlašovací stránku (fáze 3) |
 | `/auth/register` | POST | funguje; validuje e-mail i heslo a vrací jen basic data (fáze 1) |
 | `/auth/login` | POST | funguje; vrací jen basic data, identita bez hesla dá 400 (fáze 1) |
@@ -34,7 +34,9 @@ Identita je jeden dokument v kolekci `sys_identity` (nebo `<collectionName>`):
   registrationType?, profileList?, sys: { cts, mts } }
 ```
 
-- **JWT** v httpOnly cookie `token` (nebo `token_<collectionName>`), payload = `getBasicData()` + `authSchema`.
+- **JWT** v httpOnly cookie `token` (nebo `token_<collectionName>`), payload = **jen**
+  `{ identity, authSchema }` (+ `iat`/`exp`). Token říká, **kdo** se ptá — nic o tom, co smí.
+- **Role se čtou z databáze** při každém requestu, ne z tokenu. Viz kapitola 8.
 - **Heslo** hashuje `bcryptjs` v `Identity.create()`.
 - **Google** identity zakládá strategie v `helpers/passport.js` (`findByGoogleId` → jinak `create`).
 - **Autentizace** use-cases dělá middleware `Authentication.authentication` (zkusí všechny registrované cookie názvy).
@@ -634,3 +636,50 @@ nedefinuje žádná appka.
 stejnou konvencí jako `BinaryStore.createApi()` — appka si ho sama přidá do `api` mapy.
 Referenční použití: `app-v1/server/index.js` + `client/src/routes/home.jsx` (blok
 „6. Identity").
+
+---
+
+## 9. Role se čtou z databáze, ne z tokenu (2026-09-07)
+
+**Co bylo špatně.** `createToken()` podepisoval celý `getBasicData()`, tedy i `profileList`,
+a `authentication`/`resolveIdentity` daly do `req.identity` **rozkódovaný payload**. Každé
+autorizační pravidlo v celém stacku — `authorization(profiles)` v `command.js`, `roleAuth`
+i `teamScoped` v appce, `isAllowed` v BinaryStore — pak čtelo roli z tokenu.
+
+Podpis to sice chrání proti přepsání, ale znamená to, že **mezi návštěvníkem a rolí
+`authorities` stojí jediná věc: `JWT_SECRET`**. Jedna uniklá proměnná (a dev default je
+doslova `dev-secret`) = kdokoli si podepíše token s libovolnou rolí a server mu uvěří.
+Žádná druhá obrana za tím nebyla.
+
+Druhá, tichá vada: **role se nedaly odebrat.** Co je v tokenu, platí do jeho expirace
+(`JWT_LIFETIME`, u appek den), takže odebrání role ani smazání účtu se neprojevilo, dokud se
+uživatel neodhlásil. `tools/seed-admin.js` to dokonce hlásil jako očekávané chování.
+
+**Jak to je teď.**
+
+| | Dřív | Teď |
+|---|---|---|
+| Payload tokenu | `getBasicData()` + `authSchema` (včetně `profileList`, `email`) | `{ identity, authSchema }` |
+| `req.identity` | rozkódovaný payload | **dokument z kolekce** (bez hashe a reset tokenu) |
+| Odebrání role | až po novém přihlášení | okamžitě |
+| Smazaný účet | token platí dál | 401 |
+| `GET /auth` | payload tokenu | `getBasicData()` z databáze |
+
+- Lookup je `getByIdentity()` nad unikátním indexem `identity`, tedy jeden indexovaný
+  `findOne` na request **s cookie**; anonymní požadavky nic neplatí.
+- `resolveIdentity` běží před každým use casem včetně veřejných, takže se to týká i jich —
+  ale jen když návštěvník cookie má.
+- **Chybějící dokument = nepřihlášený**, ne „přihlášený bez rolí": smazaný účet i podvržený
+  token na neexistující identitu skončí stejně.
+- **Nedostupná databáze = nepřihlášený.** Vypadat jako uživatel bez rolí by bylo horší:
+  pravidlo `auth: undefined` (veřejné čtení) by prošlo a to by při výpadku databáze mohlo
+  vypadat jako částečně funkční web.
+- `stripSecrets()` nechává `hasPassword: !!password`, protože `getAuthMethodList()` z hashe
+  odvozuje „do tohohle účtu se dá přihlásit heslem" — bez příznaku by `GET /auth` tvrdil,
+  že účet heslo nemá.
+- Cookie → dao je registr (`registerCookieName(name, dao)`): appka s vlastní kolekcí
+  (`Authentication.init({ collectionName })`) musí identitu hledat v té kolekci, pro kterou
+  byl token vydaný.
+
+Testy: `test/caio-server-auth/authentication.test.js` — mezi nimi ten podstatný,
+*„ignores profileList carried in the token and uses the stored one"*.

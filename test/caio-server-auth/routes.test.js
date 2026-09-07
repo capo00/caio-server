@@ -14,6 +14,16 @@ jest.mock("../../src/caio-server-auth/config/config", () => ({
 
 jest.mock("../../src/caio-server-auth/abl/identity", () => ({}));
 
+// GET /auth reads the identity from the database (api/authentication.js), not from the
+// token -- so the route is tested against that lookup, not against jwt.verify.
+jest.mock("../../src/caio-server-auth/api/authentication.js", () => ({
+  __esModule: true,
+  default: jest.fn(),
+  loadIdentity: jest.fn(),
+  resolveIdentity: jest.fn(),
+  registerCookieName: jest.fn(),
+}));
+
 jest.mock("../../src/caio-server-auth/helpers/mailer.js", () => ({
   __esModule: true,
   default: {
@@ -27,6 +37,7 @@ import fs from "fs";
 import passport from "passport";
 import Routes from "../../src/caio-server-auth/api/routes.js";
 import Mailer from "../../src/caio-server-auth/helpers/mailer.js";
+import { loadIdentity } from "../../src/caio-server-auth/api/authentication.js";
 
 function createMockIdentity() {
   return {
@@ -119,19 +130,21 @@ describe("Auth Routes", () => {
   });
 
   describe("GET /", () => {
-    it("should return identity from valid token", async () => {
-      const identityData = { identity: "1-1-1", name: "John" };
-      jwt.verify.mockReturnValue(identityData);
+    it("returns the identity loaded from the database", async () => {
+      loadIdentity.mockResolvedValue({ identity: "1-1-1", name: "John", profileList: ["operatives"] });
 
       const handler = getHandler(router, "get", "/");
       const { req, res } = createMockReqRes({ cookies: { token: "valid-jwt" } });
       await handler(req, res);
 
-      expect(res.json).toHaveBeenCalledWith({ identity: identityData });
+      // Through getBasicData, so the browser never sees more than the display fields
+      // plus its own roles.
+      expect(identity.getBasicData).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({ identity: { identity: "1-1-1", name: "John" } });
     });
 
-    it("should return null identity for invalid token", async () => {
-      jwt.verify.mockImplementation(() => { throw new Error("expired"); });
+    it("returns null when the identity cannot be loaded (bad or revoked token)", async () => {
+      loadIdentity.mockResolvedValue(null);
 
       const handler = getHandler(router, "get", "/");
       const { req, res } = createMockReqRes({ cookies: { token: "bad-jwt" } });
@@ -141,6 +154,8 @@ describe("Auth Routes", () => {
     });
 
     it("should return null identity when no cookie", async () => {
+      loadIdentity.mockResolvedValue(null);
+
       const handler = getHandler(router, "get", "/");
       const { req, res } = createMockReqRes();
       await handler(req, res);

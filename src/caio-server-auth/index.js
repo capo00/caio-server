@@ -16,7 +16,9 @@ const Authentication = {
       identity = createIdentity(dao, collectionName);
       strategyName = "google-" + collectionName;
       cookieName = "token_" + collectionName;
-      registerCookieName(cookieName);
+      // Dao jde s cookie: role se čtou z databáze, takže se musí hledat v té kolekci,
+      // pro kterou byl token vydaný -- ne ve výchozí `sys_identity`.
+      registerCookieName(cookieName, dao);
     }
 
     Passport.init(prefixPath, identity, strategyName);

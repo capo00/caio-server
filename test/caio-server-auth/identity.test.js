@@ -197,7 +197,10 @@ describe("Identity", () => {
   });
 
   describe("createToken", () => {
-    it("should sign JWT with basic data and config", () => {
+    // The token says who is asking, nothing about what they may do: roles are read from
+    // the collection on every request (api/authentication.js). While `profileList` rode
+    // along in the payload, a leaked JWT_SECRET was a free `authorities`.
+    it("signs only the identity code and the auth schema", () => {
       const identity = {
         identity: "1-1-1",
         firstName: "John",
@@ -208,15 +211,15 @@ describe("Identity", () => {
         profileList: ["User"],
       };
       const token = Identity.createToken(identity);
+
       expect(jwt.sign).toHaveBeenCalledWith(
-        expect.objectContaining({
-          identity: "1-1-1",
-          email: "j@t.com",
-          authSchema: "sys_identity",
-        }),
+        { identity: "1-1-1", authSchema: "sys_identity" },
         "test-secret",
-        { expiresIn: "1d" }
+        { expiresIn: "1d" },
       );
+      const payload = jwt.sign.mock.calls[0][0];
+      expect(payload).not.toHaveProperty("profileList");
+      expect(payload).not.toHaveProperty("email");
       expect(token).toBe("jwt-token");
     });
   });
@@ -248,6 +251,14 @@ describe("Identity", () => {
       });
       expect(data).not.toHaveProperty("password");
       expect(data).not.toHaveProperty("googleId");
+    });
+
+    // Request context carries the identity without the hash (api/authentication.js
+    // strips it), so the derived list has to work off the flag too -- otherwise
+    // GET /auth reports a password account as provider-only.
+    it("derives the password method from hasPassword when the hash is gone", () => {
+      const data = Identity.getBasicData({ identity: "1-1-1", hasPassword: true, googleId: "g1" });
+      expect(data.authMethodList).toEqual(["password", "google"]);
     });
   });
 

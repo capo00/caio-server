@@ -159,12 +159,18 @@ function createIdentity(identityDao, collectionName = "sys_identity") {
       return await Identity.create({ ...data, email, registrationType: provider, [field]: providerId });
     },
 
-    /** What the account can be signed in with -- for the UI, not for authorization. */
+    /**
+     * What the account can be signed in with -- for the UI, not for authorization.
+     *
+     * `hasPassword` je tu kvůli tomu, že request context nese identitu **bez** hashe
+     * (`api/authentication.js` ho odstraňuje), ale pořád potřebuje umět říct, že se do
+     * účtu dá přihlásit heslem.
+     */
     getAuthMethodList(data = {}) {
       const list = Object.entries(PROVIDER_FIELDS)
         .filter(([, field]) => data[field])
         .map(([provider]) => provider);
-      if (data.password) list.unshift("password");
+      if (data.password || data.hasPassword) list.unshift("password");
       return list;
     },
 
@@ -244,8 +250,25 @@ function createIdentity(identityDao, collectionName = "sys_identity") {
       return null;
     },
 
+    /**
+     * The token says **who** is asking, nothing about what they may do.
+     *
+     * It used to carry the whole basic data including `profileList`, and the server
+     * authorized straight from it -- so the only thing between a visitor and
+     * `["authorities"]` was the HMAC signature, and a leaked `JWT_SECRET` was a full
+     * privilege escalation. Roles now come from the collection on every request
+     * (`api/authentication.js`), which also makes taking a role away take effect
+     * immediately instead of at the next login.
+     *
+     * `identity` is the code, not the Mongo `id`: it is what the unique index is on and
+     * what the rest of the stack compares against (`person.identity`).
+     */
     createToken(identity) {
-      return jwt.sign({ ...Identity.getBasicData(identity), authSchema: collectionName }, Config.token.jwtSecret, { expiresIn: Config.token.jwtLifetime })
+      return jwt.sign(
+        { identity: identity.identity, authSchema: collectionName },
+        Config.token.jwtSecret,
+        { expiresIn: Config.token.jwtLifetime },
+      );
     },
 
     getBasicData(data) {

@@ -1,7 +1,7 @@
 import express from "express";
-import jwt from "jsonwebtoken";
 import passport from "passport";
 import DefaultIdentity from "../abl/identity.js";
+import { loadIdentity } from "./authentication.js";
 import Config from "../config/config.js";
 import Passport from "../helpers/passport.js";
 import { PROVIDERS, getProviderList, isConfigured } from "../helpers/providers.js";
@@ -55,18 +55,17 @@ const Routes = {
       res.clearCookie(cookieName, getCookieOptions());
     }
 
+    /**
+     * Kdo je přihlášený — odpověď pro klienta (`UiAuth.SessionProvider`).
+     *
+     * Čte se **z databáze**, ne z tokenu: token nese jen identitu, protože profileList
+     * v něm byl zdroj autorizace a jedno uniklé `JWT_SECRET` by znamenalo libovolnou roli
+     * (viz `api/authentication.js`). Klient tím zároveň vidí roli aktuální — když správce
+     * roli přidá nebo vezme, projeví se to při dalším načtení stránky, ne až po odhlášení.
+     */
     router.get("/", async (req, res) => {
-      const token = req.cookies[cookieName];
-
-      let id = null;
-      if (token) {
-        try {
-          id = jwt.verify(token, Config.token.jwtSecret);
-        } catch (error) {
-          //console.warn("/auth: Token is not valid", error);
-        }
-      }
-      return res.json({ identity: id });
+      const record = await loadIdentity(req);
+      return res.json({ identity: record ? identity.getBasicData(record) : null });
     });
 
     // What the login page needs to render itself: which providers this deployment

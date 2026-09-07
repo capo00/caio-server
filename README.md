@@ -20,7 +20,7 @@
 | `useCase`    | Code of the use case.                           |
 | `method`     | HTTP method - `get` or `post`.                  |
 | `dtoIn`      | Input data to command.                          |
-| `identity`   | Authenticated user identity (from JWT cookie).  |
+| `identity`   | Authenticated user identity — the **stored document** the JWT cookie names, not the token payload (see below). |
 | `req`        | Whole object of request.                        |
 | `res`        | Whole object of response.                       |
 | `next`       | Express next function.                          |
@@ -291,7 +291,7 @@ Registered routes (relative to `prefixPath`):
 
 | Route                       | Method | Desc                                                              |
 |-----------------------------|--------|-------------------------------------------------------------------|
-| `/`                         | GET    | Returns current identity from JWT cookie.                         |
+| `/`                         | GET    | Returns the current identity, **read from the collection** the JWT cookie names (so the client sees fresh roles), or `{ identity: null }`. |
 | `/config`                   | GET    | What a login page needs to render itself: `{ providerList, password: { minLength, maxBytes, patternSource, patternFlags } }`. `providerList` holds only the providers this deployment has credentials for. |
 | `/register`                 | POST   | Registers a new identity with `{ firstName, surname, email, password }`. Validates the e-mail and the password rule, and answers with basic data only -- never the stored hash. |
 | `/login`                    | POST   | Logs in with `{ email, password }`. Sets JWT cookie, answers with basic data. |
@@ -349,7 +349,24 @@ client never has to repeat it.
 
 #### Authentication.authentication
 
-Express middleware that verifies the JWT cookie and attaches `req.identity`. Returns `401` if no valid token is found. Use via `auth` parameter in use case definition.
+Express middleware that verifies the JWT cookie, **loads that identity from the collection**
+and attaches it as `req.identity`. Returns `401` if there is no valid token, or if the identity
+it names no longer exists. Use via the `auth` parameter in a use case definition.
+
+**Roles are never taken from the token.** The payload is only `{ identity, authSchema }`; the
+`profileList` every `auth` rule checks comes from the stored document, read per request. Two
+reasons, and the first one is the important one:
+
+- A signed token is tamper-proof only as long as the secret holds. With roles inside it, one
+  leaked `JWT_SECRET` (the dev default is `dev-secret`) mints `["authorities"]` for anybody,
+  with nothing else in the way. Reading from the collection means a forged token still has to
+  name an identity that exists — and it gets exactly the roles that identity has.
+- Revocation works. Roles baked into a token stay valid until it expires, so removing a role
+  or deleting an account used to do nothing until the next login.
+
+The cost is one indexed `findOne` per request **that carries a cookie** (`identity` is
+unique-indexed); anonymous traffic pays nothing. A database error is treated as
+*not authenticated*, never as a signed-in user with no roles.
 
 ```
 const { App, Authentication } = require("caio-server");
